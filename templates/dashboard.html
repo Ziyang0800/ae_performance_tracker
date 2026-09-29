@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .row-person-even { background-color: #ffffff !important; }
+    .row-person-odd  { background-color: #dbe8f6 !important; }
+
+    .card-header-navy    { background-color: #1E3A8A !important; color: #ffffff !important; }
+    .card-header-emerald { background-color: #065F46 !important; color: #ffffff !important; }
+    .card-header-slate   { background-color: #334155 !important; color: #ffffff !important; }
+
+    .header-weekday { background-color: #408B96 !important; color: #ffffff !important; font-weight: bold; }
+    .header-weekend { background-color: #FF6720 !important; color: #ffffff !important; font-weight: bold; }
+    .header-ph      { background-color: #F2A900 !important; color: #000000 !important; font-weight: bold; }
+
+    .wknd-cell-odd  { background-color: #FFE1D2 !important; }
+    .wknd-cell-even { background-color: #FFC2A6 !important; }
+    .ph-cell-odd    { background-color: #FFEFC9 !important; }
+    .ph-cell-even   { background-color: #FFDF94 !important; }
+
+    .table-matrix td, .table-matrix th { border: 1px solid #b8cce4 !important; font-size: 0.78rem; padding: 3px; }
+    
+    /* 1. STICKY FIRST COLUMN ON DAILY MATRIX */
+    .table-matrix th:first-child,
+    .table-matrix td:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 3;
+        background-clip: padding-box;
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.08);
+    }
+
+    .station-card { border-left: 5px solid #0d6efd; border-radius: 8px; transition: transform 0.15s; }
+    .station-card:hover { transform: translateY(-2px); }
+
+    .sort-header { cursor: pointer; user-select: none; }
+    .sort-header:hover { background-color: #e9ecef !important; }
+
+    .editable-cell { cursor: pointer; }
+    .editable-cell:hover { outline: 2px solid #0d6efd; background-color: #fff9db !important; }
+
+    .tat-pass { color: #0f5132 !important; font-weight: bold; }
+    .tat-warn { color: #b45309 !important; font-weight: bold; }
+    .tat-fail { color: #b02a37 !important; font-weight: bold; }
+</style>
+
+<!-- TOP BAR -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="mb-0 fw-bold">Performance Dashboard</h4>
+        <small class="text-muted">Tracking Individual & Station Performance</small>
+    </div>
+    
+    <div class="d-flex align-items-center gap-2">
+        <div class="btn-group btn-group-sm shadow-sm">
+            <button type="button" class="btn btn-outline-secondary fw-bold" onclick="stepPeriod(-1)" title="Previous Month">◀</button>
+            <select class="form-select form-select-sm fw-bold border-primary text-primary" id="periodSelect" style="width: 175px;" onchange="location.href='/?period=' + this.value;">
+                {% set current_year = namespace(val=0) %}
+                {% for p in available_periods %}
+                    {% if p.year != current_year.val %}
+                        {% if current_year.val != 0 %}</optgroup>{% endif %}
+                        {% set current_year.val = p.year %}
+                        <optgroup label="Year {{ p.year }}">
+                    {% endif %}
+                    <option value="{{ p.val }}" {{ 'selected' if p.val == selected_period else '' }}>
+                        {{ p.label }}
+                    </option>
+                {% endfor %}
+                {% if current_year.val != 0 %}</optgroup>{% endif %}
+            </select>
+            <button type="button" class="btn btn-outline-secondary fw-bold" onclick="stepPeriod(1)" title="Next Month">▶</button>
+        </div>
+
+        <a href="/export_excel?period={{ selected_period }}" class="btn btn-outline-success btn-sm fw-bold px-3 shadow-sm">
+            📊 Export Excel (.xlsx)
+        </a>
+        <a href="/export_pptx?period={{ selected_period }}" class="btn btn-outline-danger btn-sm fw-bold px-3 shadow-sm">
+            📥 Export Slides (.pptx)
+        </a>
+    </div>
+</div>
+
+<!-- HEADLINE KPI CARDS -->
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card shadow-sm border-0 bg-dark text-white p-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <small class="text-uppercase fw-bold" style="color: rgba(255, 255, 255, 0.75);">DEPARTMENT TOTAL OUTPUT ({{ report_period }})</small>
+                    <h2 class="fw-bold mb-0 text-white">{{ dept_total_units }} <small class="fs-6" style="color: rgba(255, 255, 255, 0.85);">units calibrated</small></h2>
+                </div>
+                <div class="fs-1 text-primary">📦</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card shadow-sm border-0 bg-dark text-white p-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <small class="text-uppercase fw-bold" style="color: rgba(255, 255, 255, 0.75);">DEPARTMENT AVERAGE STATION P.I.</small>
+                    <h2 class="fw-bold mb-0 text-success">{{ "%.1f"|format(dept_avg_pi) }} <small class="fs-6" style="color: rgba(255, 255, 255, 0.85);">units / equiv. day</small></h2>
+                </div>
+                <div class="fs-1 text-success">⚡</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 2. CLICKABLE BALANCED STATION CARDS -->
+<h6 class="fw-bold text-secondary text-uppercase mb-2">Station Output & Target P.I. Overview (Click card to filter)</h6>
+<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-xl-6 g-3 mb-4">
+    {% for station, data in station_metrics.items() %}
+    <div class="col">
+        <div class="card shadow-sm station-card bg-white p-3 h-100" style="cursor: pointer;" onclick="filterStation('{{ station }}', this)" title="Click to filter tables to {{ station }}">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <span class="text-muted small fw-bold text-uppercase text-truncate" title="{{ station }}">{{ station }}</span>
+                <span class="badge bg-light text-dark border">{{ data.headcount }} AEs</span>
+            </div>
+            <div class="d-flex justify-content-between align-items-end">
+                <div>
+                    <h3 class="fw-bold text-primary mb-0">{{ data.units }} <small class="fs-6 text-muted">units</small></h3>
+                    <small class="text-muted d-block" style="font-size: 0.72rem;">Target: {{ data.target_pi }}</small>
+                </div>
+                <div class="text-end">
+                    <span class="badge {{ 'bg-success' if data.pi_met else 'bg-danger' }} fs-6 px-2 py-1">
+                        P.I. {{ "%.1f"|format(data.pi) }}
+                    </span>
+                    <small class="d-block" style="font-size: 0.68rem; color: #495057;">units/day</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- QUICK STATION FILTER BUTTONS -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <small class="fw-bold text-muted text-uppercase" style="font-size: 0.75rem;">Filter by Station:</small>
+        <button type="button" class="btn btn-outline-secondary btn-xs active fw-bold" onclick="filterStation('all', this)">All Stations</button>
+        {% for station in station_metrics.keys() %}
+        <button type="button" class="btn btn-outline-secondary btn-xs fw-bold" onclick="filterStation('{{ station }}', this)">{{ station }}</button>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- CARD 1: P.I. SUMMARY -->
+{% set total_aes = summary|length %}
+{% set pi_met_aes = summary | selectattr('pi_met') | list | length %}
+<div class="card shadow-sm mb-4 border-0">
+    <div class="card-header card-header-navy fw-bold d-flex justify-content-between align-items-center py-3">
+        <div class="d-flex align-items-center gap-2">
+            <span>Productivity Index (P.I.) & Quality Summary</span>
+            <span class="badge bg-primary-subtle text-primary border ms-2">
+                ⚡ P.I. Hit Rate: {{ pi_met_aes }}/{{ total_aes }} AEs ({{ "%.1f"|format(pi_met_aes / total_aes * 100) if total_aes > 0 else 0 }}%)
+            </span>
+        </div>
+        <span class="badge bg-light text-dark border">Quality Target &ge; 98.0%</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" id="piSummaryTable">
+            <thead class="table-light">
+                <tr>
+                    <th class="sort-header" onclick="sortTable('piSummaryTable', 0)">Station ⬍</th>
+                    <th class="sort-header" onclick="sortTable('piSummaryTable', 1)">Engineer Name ⬍</th>
+                    <th class="sort-header text-center" onclick="sortTable('piSummaryTable', 2, true)">Total Output ⬍</th>
+                    <th class="sort-header text-center" onclick="sortTable('piSummaryTable', 3, true)">Mistakes ⬍</th>
+                    <th class="sort-header text-center" onclick="sortTable('piSummaryTable', 4, true)">Quality % ⬍</th>
+                    <th class="sort-header text-center" onclick="sortTable('piSummaryTable', 5, true)">Working Hours ⬍</th>
+                    <th>Shift</th>
+                    <th class="sort-header text-center" onclick="sortTable('piSummaryTable', 7, true)">Equiv. Days ⬍</th>
+                    <th class="text-center">Target P.I.</th>
+                    <th class="table-primary sort-header text-center" onclick="sortTable('piSummaryTable', 9, true)">Actual P.I. ⬍</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in summary %}
+                <tr data-station="{{ s.station }}">
+                    <td><span class="badge bg-secondary">{{ s.station }}</span></td>
+                    <td class="fw-bold">
+                        {{ s.formal_name }}
+                        {% if s.lifecycle_badge %}
+                            <span class="badge bg-{{ s.lifecycle_badge.class }} ms-1">{{ s.lifecycle_badge.text }}</span>
+                        {% endif %}
+                        {% if not s.has_attendance %}
+                            <span class="badge bg-danger ms-1">No Attendance</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center fw-bold">{{ s.total_units }}</td>
+                    <td class="text-center fw-bold text-secondary">{{ s.mistakes }}</td>
+                    <td class="text-center fw-bold">
+                        <span class="{{ 'text-success' if s.quality_pct >= 98.0 else 'text-danger' }}">
+                            {{ "%.1f"|format(s.quality_pct) }}%
+                        </span>
+                    </td>
+                    <td class="text-center">{{ s.total_hours }} hrs</td>
+                    <td>{{ s.shift_hours }}h</td>
+                    <td class="text-center fw-semibold">{{ s.effective_days }}</td>
+                    <td class="text-center text-muted fw-bold">{{ s.target_pi }}</td>
+                    <td class="table-primary text-center fw-bold fs-6">
+                        <span class="{{ 'text-success' if s.pi_met else 'text-danger' }}">
+                            {{ "%.1f"|format(s.pi) }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- CARD 2: TAT COMPLIANCE -->
+{% set tat_met_aes = summary | selectattr('overall_tat_val') | selectattr('overall_tat_val', 'ge', 90) | list | length %}
+<div class="card shadow-sm mb-4 border-0">
+    <div class="card-header card-header-emerald fw-bold d-flex justify-content-between align-items-center py-3">
+        <div class="d-flex align-items-center gap-2">
+            <span>Turn-Around Time (TAT) Compliance</span>
+            <span class="badge bg-success-subtle text-success border ms-2">
+                🎯 TAT Hit Rate: {{ tat_met_aes }}/{{ total_aes }} AEs ({{ "%.1f"|format(tat_met_aes / total_aes * 100) if total_aes > 0 else 0 }}%)
+            </span>
+        </div>
+        <span class="badge bg-danger">TAT Target &ge; 90%</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover align-middle mb-0 text-center" id="tatTable">
+            <thead class="table-light">
+                <tr>
+                    <th class="text-start sort-header" onclick="sortTable('tatTable', 0)">Station ⬍</th>
+                    <th class="text-start sort-header" onclick="sortTable('tatTable', 1)">Engineer Name ⬍</th>
+                    <th class="sort-header" onclick="sortTable('tatTable', 2, true)">Total Units ⬍</th>
+                    <th>ETE <small class="text-muted">(15%)</small></th>
+                    <th>NEW <small class="text-muted">(35%)</small></th>
+                    <th>PSC_EXT <small class="text-muted">(35%)</small></th>
+                    <th>PSC_INT <small class="text-muted">(15%)</small></th>
+                    <th class="table-info sort-header" onclick="sortTable('tatTable', 7, true)">Overall TAT ⬍</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in summary %}
+                <tr data-station="{{ s.station }}">
+                    <td class="text-start"><span class="badge bg-secondary">{{ s.station }}</span></td>
+                    <td class="text-start fw-bold">
+                        {{ s.formal_name }}
+                        {% if s.lifecycle_badge %}
+                            <span class="badge bg-{{ s.lifecycle_badge.class }} ms-1">{{ s.lifecycle_badge.text }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="fw-bold">{{ s.total_units }}</td>
+                    <td>
+                        <span class="fw-bold">{{ s.tat_scores['ETE'].val }}</span>
+                        {% if s.tat_scores['ETE'].total > 0 %}
+                            <small class="d-block text-muted" style="font-size: 0.72rem;">({{ s.tat_scores['ETE'].met }}/{{ s.tat_scores['ETE'].total }})</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="fw-bold">{{ s.tat_scores['NEW'].val }}</span>
+                        {% if s.tat_scores['NEW'].total > 0 %}
+                            <small class="d-block text-muted" style="font-size: 0.72rem;">({{ s.tat_scores['NEW'].met }}/{{ s.tat_scores['NEW'].total }})</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="fw-bold">{{ s.tat_scores['PSC_EXT'].val }}</span>
+                        {% if s.tat_scores['PSC_EXT'].total > 0 %}
+                            <small class="d-block text-muted" style="font-size: 0.72rem;">({{ s.tat_scores['PSC_EXT'].met }}/{{ s.tat_scores['PSC_EXT'].total }})</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="fw-bold">{{ s.tat_scores['PSC_INT'].val }}</span>
+                        {% if s.tat_scores['PSC_INT'].total > 0 %}
+                            <small class="d-block text-muted" style="font-size: 0.72rem;">({{ s.tat_scores['PSC_INT'].met }}/{{ s.tat_scores['PSC_INT'].total }})</small>
+                        {% endif %}
+                    </td>
+                    <td class="table-info fw-bold fs-6">
+                        {% if s.overall_tat_str == 'N/A' %}
+                            <span class="text-muted">N/A</span>
+                        {% elif s.overall_tat_val >= 90 %}
+                            <span class="tat-pass">{{ s.overall_tat_str }}</span>
+                        {% elif s.overall_tat_val >= 80 %}
+                            <span class="tat-warn">{{ s.overall_tat_str }}</span>
+                        {% else %}
+                            <span class="tat-fail">{{ s.overall_tat_str }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- CARD 3: DAILY MATRIX (STICKY FIRST COLUMN) -->
+<div class="card shadow-sm mb-4 border-0">
+    <div class="card-header card-header-slate fw-bold d-flex justify-content-between align-items-center py-3">
+        <span>Daily Output & Attendance Logs</span>
+        <small style="opacity: 0.9;">
+            <span class="badge" style="background-color: #FF6720; color: #fff;">Weekend</span>
+            <span class="badge ms-1" style="background-color: #F2A900; color: #000;">Public Holiday</span>
+            <span class="badge bg-light text-danger fw-bold ms-2">Red 0</span> = Worked days with 0 output
+        </small>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-bordered table-matrix align-middle mb-0 text-center">
+            <thead>
+                <tr>
+                    <th rowspan="2" class="text-start align-middle bg-light text-dark" style="min-width: 180px;">Engineer / Station</th>
+                    <th rowspan="2" class="align-middle bg-light text-dark">Type</th>
+                    <th rowspan="2" class="align-middle bg-light text-dark">Tot</th>
+                    {% for d in days_info %}
+                        <th class="{{ 'header-ph' if d.is_ph else ('header-weekend' if d.is_weekend else 'header-weekday') }}" style="font-size: 0.72rem;">
+                            {{ d.weekday }}
+                        </th>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    {% for d in days_info %}
+                        <th class="{{ 'header-ph' if d.is_ph else ('header-weekend' if d.is_weekend else 'header-weekday') }}">
+                            {{ d.day_str }}
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in summary %}
+                {% set is_odd_person = (loop.index is odd) %}
+                {% set row_bg = 'row-person-even' if is_odd_person else 'row-person-odd' %}
+                {% set wknd_bg = 'wknd-cell-odd' if is_odd_person else 'wknd-cell-even' %}
+                {% set ph_bg = 'ph-cell-odd' if is_odd_person else 'ph-cell-even' %}
+                
+                <tr data-station="{{ s.station }}">
+                    <td rowspan="2" class="text-start align-middle fw-bold {{ row_bg }}">
+                        {{ s.formal_name }}<br>
+                        <small class="text-muted">{{ s.station }}</small>
+                        {% if s.lifecycle_badge %}
+                            <br><span class="badge bg-{{ s.lifecycle_badge.class }}" style="font-size: 0.68rem;">{{ s.lifecycle_badge.text }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="{{ row_bg }} fw-bold text-success">Hours</td>
+                    <td class="fw-bold {{ row_bg }}">{{ s.total_hours_int }}</td>
+                    {% for att in s.daily_attendance %}
+                        {% set d_info = days_info[loop.index0] %}
+                        {% set cell_color = ph_bg if d_info.is_ph else (wknd_bg if d_info.is_weekend else row_bg) %}
+                        <td class="{{ cell_color }} editable-cell {{ 'att-leave' if (att in ['AL', 'MC', 'PH', 'PL', 'CP', 'UPL']) else '' }}"
+                            data-type="hours"
+                            data-user="{{ s.username }}"
+                            data-formal="{{ s.formal_name }}"
+                            data-day="{{ d_info.day_num }}"
+                            data-val="{{ att }}"
+                            title="Double-click to edit hours">
+                            {{ att }}
+                        </td>
+                    {% endfor %}
+                </tr>
+
+                <tr data-station="{{ s.station }}">
+                    <td class="{{ row_bg }} fw-bold text-primary">Output</td>
+                    <td class="fw-bold {{ row_bg }}">{{ s.total_units }}</td>
+                    {% for out in s.daily_output %}
+                        {% set d_info = days_info[loop.index0] %}
+                        {% set cell_color = ph_bg if d_info.is_ph else (wknd_bg if d_info.is_weekend else row_bg) %}
+                        <td class="{{ cell_color }} editable-cell {{ 'text-danger fw-bold' if out.is_zero_work else ('text-dark fw-bold' if out.has_val else '') }}"
+                            data-type="output"
+                            data-user="{{ s.username }}"
+                            data-formal="{{ s.formal_name }}"
+                            data-day="{{ d_info.day_num }}"
+                            data-val="{{ out.val or '0' }}"
+                            title="Double-click to edit output units">
+                            {% if out.is_zero_work %}0{% elif out.has_val %}{{ out.val }}{% endif %}
+                        </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function stepPeriod(delta) {
+        const select = document.getElementById('periodSelect');
+        const options = Array.from(select.querySelectorAll('option'));
+        const currentIndex = options.findIndex(o => o.value === select.value);
+        const newIndex = currentIndex - delta;
+        if (newIndex >= 0 && newIndex < options.length) {
+            location.href = '/?period=' + options[newIndex].value;
+        }
+    }
+
+    function filterStation(station, btnElem) {
+        const rows = document.querySelectorAll('tbody tr[data-station]');
+        rows.forEach(r => {
+            if (station === 'all' || r.getAttribute('data-station') === station) {
+                r.style.display = '';
+            } else {
+                r.style.display = 'none';
+            }
+        });
+    }
+
+    function sortTable(tableId, colIndex, isNumeric = false) {
+        const table = document.getElementById(tableId);
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const isAsc = table.getAttribute('data-sort-dir') !== 'asc';
+
+        rows.sort((a, b) => {
+            let aText = a.cells[colIndex].innerText.replace(/[^0-9.-]/g, '').trim();
+            let bText = b.cells[colIndex].innerText.replace(/[^0-9.-]/g, '').trim();
+            if (isNumeric) {
+                let aNum = parseFloat(aText) || 0;
+                let bNum = parseFloat(bText) || 0;
+                return isAsc ? aNum - bNum : bNum - aNum;
+            } else {
+                let aRaw = a.cells[colIndex].innerText.trim().toLowerCase();
+                let bRaw = b.cells[colIndex].innerText.trim().toLowerCase();
+                return isAsc ? aRaw.localeCompare(bRaw) : bRaw.localeCompare(aRaw);
+            }
+        });
+        table.setAttribute('data-sort-dir', isAsc ? 'asc' : 'desc');
+        rows.forEach(r => tbody.appendChild(r));
+    }
+</script>
+{% endblock %}

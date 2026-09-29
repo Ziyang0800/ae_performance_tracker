@@ -1,0 +1,615 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .nav-tabs .nav-link { font-weight: bold; color: #495057; }
+    .nav-tabs .nav-link.active { color: #0d6efd; border-bottom: 3px solid #0d6efd; }
+    .avatar-circle {
+        width: 36px; height: 36px; border-radius: 50%;
+        background-color: #e2e8f0; color: #334155;
+        font-weight: bold; font-size: 0.85rem;
+        display: inline-flex; align-items: center; justify-content: center;
+    }
+</style>
+
+<!-- TOP BAR -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="fw-bold mb-0">Team, Stations & Shift Settings</h4>
+        <small class="text-muted">Manage staff profiles, station transfers, segment groups, and executive KPI targets</small>
+    </div>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-outline-primary fw-bold btn-sm px-3" data-bs-toggle="modal" data-bs-target="#newStationModal">
+            + Add Station
+        </button>
+        <button type="button" class="btn btn-primary fw-bold btn-sm px-3" data-bs-toggle="modal" data-bs-target="#newPersonModal">
+            + Add Staff Member
+        </button>
+    </div>
+</div>
+
+<!-- TAB NAVIGATION -->
+<ul class="nav nav-tabs mb-4" id="teamTab" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active" id="roster-tab" data-bs-toggle="tab" data-bs-target="#roster-pane" type="button" role="tab">
+            👥 Active Roster ({{ active_engineers|length }})
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" id="stations-tab" data-bs-toggle="tab" data-bs-target="#stations-pane" type="button" role="tab">
+            🏢 Stations & Groups ({{ stations|length }})
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" id="kpi-tab" data-bs-toggle="tab" data-bs-target="#kpi-pane" type="button" role="tab">
+            🎯 KPI & Lab Targets
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" id="resigned-tab" data-bs-toggle="tab" data-bs-target="#resigned-pane" type="button" role="tab">
+            🚪 Departed Staff ({{ resigned_engineers|length }})
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" id="muted-tab" data-bs-toggle="tab" data-bs-target="#muted-pane" type="button" role="tab">
+            🔕 Muted FTEs ({{ muted_techs|length }})
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="teamTabContent">
+    <!-- ================================================================= -->
+    <!-- TAB 1: ACTIVE STAFF ROSTER                                        -->
+    <!-- ================================================================= -->
+    <div class="tab-pane fade show active" id="roster-pane" role="tabpanel">
+        <div class="card shadow-sm bg-white border-0 p-3 mb-4">
+            <!-- Search & Role Filter Bar -->
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div class="d-flex gap-2 align-items-center">
+                    <input type="text" class="form-control form-control-sm" id="rosterSearch" placeholder="🔍 Search staff by name..." style="width: 250px;" onkeyup="filterRoster()">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary active" onclick="filterRole('all', this)">All</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="filterRole('ae', this)">AEs Only</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="filterRole('admin', this)">Admins Only</button>
+                    </div>
+                </div>
+                <small class="text-muted" id="rosterCountText">{{ active_engineers|length }} active staff member(s)</small>
+            </div>
+
+            <!-- Clean Roster Table (No Open Inputs) -->
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="rosterTable" style="font-size: 0.85rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 50px;"></th>
+                            <th>Staff Member</th>
+                            <th>Role</th>
+                            <th>Station Assigned</th>
+                            <th>Target P.I.</th>
+                            <th>Shift</th>
+                            <th>Joined Date</th>
+                            <th>Activation</th>
+                            <th class="text-end" style="width: 180px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for e in active_engineers %}
+                        <tr data-role="{{ 'admin' if not e.track_performance else 'ae' }}" data-name="{{ e.formal_name.lower() }}">
+                            <td>
+                                <div class="avatar-circle">
+                                    {{ e.formal_name[:1].upper() }}
+                                </div>
+                            </td>
+                            <td>
+                                <strong class="text-dark">{{ e.formal_name }}</strong>
+                                {% if e.display_name %}<small class="text-muted d-block">Display: {{ e.display_name }}</small>{% endif %}
+                                {% if e.track_performance %}<code class="small text-secondary">{{ e.username }}</code>{% endif %}
+                            </td>
+                            <td>
+                                {% if not e.track_performance %}
+                                    <span class="badge bg-info text-dark">Admin</span>
+                                {% else %}
+                                    <span class="badge bg-success">AE</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">{{ e.station_name or 'Unassigned' }}</span>
+                            </td>
+                            <td>
+                                <strong>{{ e.custom_target_pi or e.default_station_target or '3.0' }}</strong>
+                                {% if e.custom_target_pi %}
+                                    <small class="text-primary d-block" style="font-size: 0.68rem;">(Custom Override)</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ e.shift_hours }}h</td>
+                            <td>{{ e.joined_date or 'N/A' }}</td>
+                            <td>{{ e.activation_date or 'N/A' }}</td>
+                            <td class="text-end">
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editStaffModal_{{ e.id }}" title="Edit Details">
+                                        ✏️ Edit
+                                    </button>
+                                    {% if e.track_performance %}
+                                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#transferModal_{{ e.id }}" title="Transfer Station">
+                                        🔁 Transfer
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- TAB 2: STATIONS & SEGMENT GROUPS                                  -->
+    <!-- ================================================================= -->
+    <div class="tab-pane fade" id="stations-pane" role="tabpanel">
+        <div class="card shadow-sm bg-white border-0 p-3 mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h6 class="fw-bold mb-0">Station Sequence, Targets & Names</h6>
+                    <small class="text-muted">Configure Option A segment groups (CSG, EiSG+Scope, STDS LAB, Legacy, MEC Lab).</small>
+                </div>
+                <button form="stationsForm" type="submit" class="btn btn-primary btn-sm fw-bold px-3">Save Station Settings</button>
+            </div>
+
+            <form id="stationsForm" method="POST">
+                <input type="hidden" name="action" value="update_stations">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 75px;" class="text-center">Active</th>
+                                <th style="min-width: 180px;">Station Name</th>
+                                <th style="min-width: 200px;">Segment Group (Option A)</th>
+                                <th style="width: 140px;">Display Sequence</th>
+                                <th style="width: 160px;">Default Target P.I.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for st in stations %}
+                            <tr>
+                                <td class="text-center">
+                                    <input type="hidden" name="station_id" value="{{ st.id }}">
+                                    <input class="form-check-input" type="checkbox" name="active_{{ st.id }}" value="1" {{ 'checked' if st.is_active else '' }}>
+                                </td>
+                                <td>
+                                    <input type="text" name="name_{{ st.id }}" class="form-control form-control-sm fw-bold text-primary" value="{{ st.name }}" required>
+                                </td>
+                                <td>
+                                    <select name="group_{{ st.id }}" class="form-select form-select-sm fw-semibold">
+                                        <option value="CSG" {{ 'selected' if st.group_name and st.group_name.upper() == 'CSG' else '' }}>CSG</option>
+                                        <option value="EiSG+Scope" {{ 'selected' if st.group_name and 'EISG' in st.group_name.upper() else '' }}>EiSG+Scope</option>
+                                        <option value="STDS LAB" {{ 'selected' if st.group_name and 'STD' in st.group_name.upper() else '' }}>STDS LAB</option>
+                                        <option value="Legacy+Modular+PMPS (A)+MMA+ Others" {{ 'selected' if st.group_name and 'LEGACY' in st.group_name.upper() else '' }}>Legacy+Modular+PMPS (A)+MMA+ Others</option>
+                                        <option value="MEC Lab" {{ 'selected' if st.group_name and 'MEC' in st.group_name.upper() else '' }}>MEC Lab</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input type="number" name="order_{{ st.id }}" class="form-control form-control-sm text-center fw-bold" value="{{ st.sort_order }}" min="1" max="99" style="width: 90px;">
+                                </td>
+                                <td>
+                                    <input type="number" step="0.1" name="target_{{ st.id }}" class="form-control form-control-sm text-center fw-bold" value="{{ st.target_pi }}" min="0.5" max="20.0" style="width: 100px;">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- TAB 3: KPI & LAB TARGETS                                          -->
+    <!-- ================================================================= -->
+    <div class="tab-pane fade" id="kpi-pane" role="tabpanel">
+        <div class="card shadow-sm bg-white border-0 p-3 mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h6 class="fw-bold mb-0">Executive KPI Scorecard Targets & Headcount</h6>
+                    <small class="text-muted">Configure the target thresholds and fiscal label shown on the executive briefing slide.</small>
+                </div>
+                <button form="kpiForm" type="submit" class="btn btn-primary btn-sm fw-bold px-3">Save KPI Targets</button>
+            </div>
+
+            <form id="kpiForm" method="POST">
+                <input type="hidden" name="action" value="update_kpis">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Target Column Header Label</label>
+                        <input type="text" name="target_label" class="form-control form-control-sm fw-bold text-primary" value="{{ kpi_configs[0].target_label if kpi_configs else 'Q2 FY\'26 Target' }}" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Target Lab Headcount (Slide 4)</label>
+                        <input type="number" name="target_headcount" class="form-control form-control-sm fw-bold text-success" value="{{ target_headcount }}" min="1" max="100" required>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Metric Name</th>
+                                <th style="width: 220px;" class="text-center">Target Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for k in kpi_configs %}
+                            <input type="hidden" name="kpi_key" value="{{ k.kpi_key }}">
+                            <tr>
+                                <td class="fw-bold text-dark">{{ k.kpi_name }}</td>
+                                <td class="text-center">
+                                    <div class="input-group input-group-sm justify-content-center">
+                                        <input type="number" step="0.1" name="val_{{ k.kpi_key }}" class="form-control form-control-sm text-center fw-bold" value="{{ k.target_value }}" style="max-width: 100px;" required>
+                                        <span class="input-group-text">{{ k.unit }}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- TAB 4: DEPARTED STAFF                                             -->
+    <!-- ================================================================= -->
+    <div class="tab-pane fade" id="resigned-pane" role="tabpanel">
+        <div class="card shadow-sm bg-white border-0 p-3 mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h6 class="fw-bold mb-0">Departed Staff ({{ resigned_engineers|length }})</h6>
+                    <small class="text-muted">Historical members are included in calculations for the months they actively worked.</small>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Formal Name</th>
+                            <th>Role</th>
+                            <th>Last Station</th>
+                            <th>Joined Date</th>
+                            <th>Resigned Date</th>
+                            <th class="text-end" style="width: 140px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for e in resigned_engineers %}
+                        <tr>
+                            <td>
+                                <strong class="text-dark">{{ e.formal_name }}</strong>
+                                {% if e.display_name %}<small class="text-muted d-block">{{ e.display_name }}</small>{% endif %}
+                            </td>
+                            <td>
+                                {% if not e.track_performance %}<span class="badge bg-light text-secondary border">Admin</span>
+                                {% else %}<span class="badge bg-secondary">AE</span>{% endif %}
+                            </td>
+                            <td><span class="badge bg-light text-dark border">{{ e.station_name or 'Unassigned' }}</span></td>
+                            <td>{{ e.joined_date or 'N/A' }}</td>
+                            <td><span class="badge bg-danger">{{ e.resigned_date }}</span></td>
+                            <td class="text-end">
+                                <form method="POST" action="/team/reactivate/{{ e.id }}" class="d-inline">
+                                    <button type="submit" class="btn btn-outline-success btn-sm py-1" title="Restore to active roster">
+                                        Reactivate
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" class="text-center text-muted py-3">No departed staff on record.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- TAB 5: MUTED FTES                                                 -->
+    <!-- ================================================================= -->
+    <div class="tab-pane fade" id="muted-pane" role="tabpanel">
+        <div class="card shadow-sm bg-white border-0 p-3 mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h6 class="fw-bold mb-0">Muted / Ignored Technicians ({{ muted_techs|length }})</h6>
+                    <small class="text-muted">FTEs or contractors whose warnings are permanently disabled.</small>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Username</th>
+                            <th>Reason</th>
+                            <th class="text-end" style="width: 140px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for m in muted_techs %}
+                        <tr>
+                            <td><code>{{ m.username }}</code></td>
+                            <td>{{ m.reason or 'FTE / Untracked Tech' }}</td>
+                            <td class="text-end">
+                                <a href="/unmute_technician/{{ m.id }}" class="btn btn-outline-primary btn-sm py-0">Unmute</a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" class="text-center text-muted py-3">No muted technicians.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===================================================================== -->
+<!-- DEDICATED MODALS: INDIVIDUAL EDIT & TRANSFER                          -->
+<!-- ===================================================================== -->
+{% for e in active_engineers %}
+<!-- 1. EDIT PROFILE MODAL -->
+<div class="modal fade" id="editStaffModal_{{ e.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="/team/edit_member">
+                <input type="hidden" name="eng_id" value="{{ e.id }}">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">Edit Profile: {{ e.formal_name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">Full Formal Name</label>
+                        <input type="text" name="formal_name" class="form-control form-control-sm" value="{{ e.formal_name }}" required>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-bold small">Display Name (Slides)</label>
+                            <input type="text" name="display_name" class="form-control form-control-sm text-primary fw-bold" value="{{ e.display_name or '' }}" placeholder="{{ e.formal_name.split()[0] }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-bold small">Username (CalBy)</label>
+                            <input type="text" name="username" class="form-control form-control-sm" value="{{ e.username }}" placeholder="Optional for Admins">
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-bold small">Shift Hours</label>
+                            <select name="shift_hours" class="form-select form-select-sm">
+                                <option value="8.0" {{ 'selected' if e.shift_hours == 8.0 else '' }}>8.0h Shift</option>
+                                <option value="12.0" {{ 'selected' if e.shift_hours == 12.0 else '' }}>12.0h Shift</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-bold small">Custom Target P.I.</label>
+                            <input type="number" step="0.1" name="custom_target_pi" class="form-control form-control-sm" value="{{ e.custom_target_pi or '' }}" placeholder="Station Default ({{ e.default_station_target or '3.0' }})">
+                        </div>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input class="form-check-input" type="checkbox" name="track_performance" value="1" id="trackPerf_{{ e.id }}" {{ 'checked' if e.track_performance else '' }}>
+                        <label class="form-check-label fw-bold small text-dark" for="trackPerf_{{ e.id }}">
+                            Track Performance (Uncheck for Admins/Support)
+                        </label>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-bold small">Joined Date</label>
+                            <input type="date" name="joined_date" class="form-control form-control-sm" value="{{ e.joined_date or '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-bold small">Activation Date</label>
+                            <input type="date" name="activation_date" class="form-control form-control-sm" value="{{ e.activation_date or '' }}">
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-bold small text-danger">Departure / Resigned Date (If Leaving)</label>
+                        <input type="date" name="resigned_date" class="form-control form-control-sm" value="{{ e.resigned_date or '' }}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 2. TRANSFER STATION DIALOG -->
+<div class="modal fade" id="transferModal_{{ e.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="/team/transfer_member">
+                <input type="hidden" name="eng_id" value="{{ e.id }}">
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title fw-bold">Transfer Station: {{ e.formal_name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info py-2 small mb-3">
+                        <strong>Current Station:</strong> {{ e.station_name or 'Unassigned' }}<br>
+                        <em>The system will automatically record {{ e.station_name or 'Unassigned' }} as his Initial Station before applying the transfer.</em>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">Destination Station</label>
+                        <select name="new_station_id" class="form-select form-select-sm" required>
+                            <option value="">-- Select New Station --</option>
+                            {% for s in stations %}
+                            <option value="{{ s.id }}" {{ 'disabled' if s.id == e.station_id else '' }}>
+                                {{ s.name }} (Target P.I. {{ s.target_pi }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">Effective Transfer Month (YYYY-MM)</label>
+                        <input type="month" name="transfer_period" class="form-control form-control-sm" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success btn-sm fw-bold">Confirm Transfer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<!-- MODAL: ADD NEW STATION -->
+<div class="modal fade" id="newStationModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="action" value="add_station">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">Add New Station</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Station Name</label>
+                        <input type="text" name="station_name" class="form-control" placeholder="e.g. RF LAB" required>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col">
+                            <label class="form-label fw-bold">Sequence Order</label>
+                            <input type="number" name="station_order" class="form-control" value="8" min="1">
+                        </div>
+                        <div class="col">
+                            <label class="form-label fw-bold">Default Target P.I.</label>
+                            <input type="number" step="0.1" name="station_target" class="form-control" value="3.0">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary fw-bold">Add Station</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: ADD NEW PERSON -->
+<div class="modal fade" id="newPersonModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="action" value="add_engineer">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">Add New Staff Member</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Full Formal Name</label>
+                        <input type="text" name="formal_name" class="form-control" placeholder="e.g. Sarah Tan" required>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col">
+                            <label class="form-label fw-bold">Display Name (Slides)</label>
+                            <input type="text" name="display_name" class="form-control" placeholder="e.g. Sarah">
+                        </div>
+                        <div class="col">
+                            <label class="form-label fw-bold">Username <small class="text-muted fw-normal">(Optional for Admins)</small></label>
+                            <input type="text" name="username" class="form-control" placeholder="CalBy Username">
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col">
+                            <label class="form-label fw-bold">Station</label>
+                            <select name="station_id" class="form-select">
+                                <option value="">-- None / Admin --</option>
+                                {% for s in stations %}
+                                <option value="{{ s.id }}">{{ s.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col">
+                            <label class="form-label fw-bold">Shift</label>
+                            <select name="shift_hours" class="form-select">
+                                <option value="8.0" selected>8.0h Shift</option>
+                                <option value="12.0">12.0h Shift</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input class="form-check-input" type="checkbox" name="track_performance" value="1" id="trackNew" checked>
+                        <label class="form-check-label fw-bold small text-dark" for="trackNew">
+                            Track Performance (Uncheck for Admins/Support)
+                        </label>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col">
+                            <label class="form-label fw-bold">Joined Date</label>
+                            <input type="date" name="joined_date" class="form-control">
+                        </div>
+                        <div class="col">
+                            <label class="form-label fw-bold">Activation Date</label>
+                            <input type="date" name="activation_date" class="form-control">
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-bold">Target P.I. Override (Optional)</label>
+                        <input type="number" step="0.1" name="custom_target_pi" class="form-control" placeholder="Leave empty for station default">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success fw-bold">Save Staff Member</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Live Search Filter
+    function filterRoster() {
+        const query = document.getElementById('rosterSearch').value.toLowerCase();
+        const rows = document.querySelectorAll('#rosterTable tbody tr');
+        let count = 0;
+        rows.forEach(r => {
+            const name = r.getAttribute('data-name') || '';
+            if (name.includes(query)) {
+                r.style.display = '';
+                count++;
+            } else {
+                r.style.display = 'none';
+            }
+        });
+        document.getElementById('rosterCountText').innerText = `${count} staff member(s) shown`;
+    }
+
+    // Role Filter Buttons
+    function filterRole(role, btnElem) {
+        btnElem.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btnElem.classList.add('active');
+
+        const rows = document.querySelectorAll('#rosterTable tbody tr');
+        let count = 0;
+        rows.forEach(r => {
+            const rRole = r.getAttribute('data-role');
+            if (role === 'all' || rRole === role) {
+                r.style.display = '';
+                count++;
+            } else {
+                r.style.display = 'none';
+            }
+        });
+        document.getElementById('rosterCountText').innerText = `${count} staff member(s) shown`;
+    }
+</script>
+{% endblock %}

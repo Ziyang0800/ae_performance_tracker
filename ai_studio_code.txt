@@ -1,0 +1,38 @@
+I am developing an Application Engineer (AE) Performance Tracker for a calibration lab using Flask, SQLite, Pandas, OpenPyXL, and python-pptx. 
+
+I have attached all the project files. Here is the operational context, business logic, and current project state:
+
+1. KEYSIGHT FISCAL YEAR ALIGNMENT (Nov - Oct):
+   - Q1: Nov, Dec, Jan (Note: Nov & Dec of calendar year Y belong to Fiscal Year Y+1, e.g., Nov '25 = Q1 FY'26)
+   - Q2: Feb, Mar, Apr
+   - Q3: May, Jun, Jul
+   - Q4: Aug, Sep, Oct
+   - This fiscal calendar is aligned across all database queries, analytics timelines, and quarterly reports.
+
+2. SEGMENT GROUPS & QUARTERLY REPORT (Option B - Proportional Labor Share):
+   - The 4 core segment groups are: "CSG", "EiSG+Scope", "STDS LAB", "Legacy+Modular+PMPS (A)+MMA+ Others", plus "MEC Lab" (omitted from reports while its station is inactive).
+   - In /team, stations are mapped to these segment groups (single source of truth).
+   - Calibrations are mapped to groups via the `model_groups` table (Model ID -> Group).
+   - P.I. is calculated via Option B: An engineer's working days are divided proportionally based on the share of units they calibrated for each group.
+   - Target P.I. is removed from the Quarterly section.
+   - The Quarterly metrics are:
+     * Total Volume
+     * Avg Monthly Output (Total Volume / 3)
+     * Quarterly P.I. (Group Units / Group Effective Days)
+     * QoQ Δ P.I. (Comparison vs previous fiscal quarter)
+     * Weighted TAT % (Unified 15/35/35/15 formula)
+     * Quality % and Rejections
+   - Single Source of Truth: Both the Web UI (/analytics) and Excel audit export (/export_quarterly_data) call the exact same backend function (`calculate_quarterly_engine`) so their numbers match 100%.
+
+3. TAT SLA FORMULA (Unified Everywhere):
+   - Weights: CRD_ETE (15%), CRD_NEW (35%), PSC_EXT (35%), PSC_INT (15%).
+   - Weighted average of MOS = 1 completion rate. Used identically on Dashboard, History, Analytics Quarterly part, Slides, and Excel.
+
+4. STAFF ROSTER & LIFECYCLE RULES:
+   - `track_performance = 1` for AEs (calibrating engineers).
+   - `track_performance = 0` for Admins/Support (status badge is "Admin", username is optional).
+   - Slide 4 (Resource Level Report): Counts ALL staff (AEs + Admins + MECH LAB) unless resigned prior to that month.
+   - Resigned members: Fully included in past quarters/months for the periods they actively worked.
+   - Transfers: `update_team` automatically snapshots the previous station as their Initial Station.
+
+Please acknowledge that you understand these core rules before we proceed to the next step.

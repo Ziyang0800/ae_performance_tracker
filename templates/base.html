@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AE Performance Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #f8f9fa; font-size: 0.88rem; }
+        .table-matrix td, .table-matrix th { padding: 4px; text-align: center; font-size: 0.78rem; min-width: 25px; }
+        .station-card { border-left: 5px solid #0d6efd; border-radius: 6px; }
+        .att-nw { color: #b02a37; font-weight: bold; background-color: #f8d7da; }
+        .att-leave { color: #664d03; font-weight: bold; background-color: #fff3cd; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark px-4 mb-3">
+        <a class="navbar-brand fw-bold" href="/">AE Performance Tracker</a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link" href="/">Dashboard</a>
+            <a class="nav-link" href="/history">Staff & Station History</a>
+            <a class="nav-link" href="/analytics">Analytics & Trends</a>
+            <a class="nav-link" href="/upload">Upload Files</a>
+            <a class="nav-link" href="/team">Team & Shifts</a>
+        </div>
+    </nav>
+    <div class="container-fluid px-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, msg in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">{{ msg }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

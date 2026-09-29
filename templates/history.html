@@ -1,0 +1,675 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .sticky-table-header th {
+        position: sticky;
+        top: 0;
+        background-color: #f8f9fa !important;
+        z-index: 2;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    }
+    .badge-soft-green { background-color: #d1e7dd; color: #0f5132; }
+    .badge-soft-amber { background-color: #fff3cd; color: #664d03; font-weight: bold; }
+    .badge-soft-red   { background-color: #f8d7da; color: #842029; font-weight: bold; border: 1px solid #f5c2c7; }
+    /* Print stylesheet for clean 1-on-1 appraisal reviews */
+    @media print {
+        nav, .navbar, .btn, form, select, .btn-group, #rosterSearch, .nav-tabs {
+            display: none !important;
+        }
+        body {
+            background: white !important;
+            font-size: 9pt;
+            color: #000 !important;
+        }
+        .container-fluid {
+            padding: 0 !important;
+        }
+        .card {
+            border: 1px solid #dee2e6 !important;
+            box-shadow: none !important;
+            margin-bottom: 15px !important;
+        }
+        .table-responsive {
+            max-height: none !important;
+            overflow: visible !important;
+        }
+        .sticky-table-header th {
+            position: static !important;
+        }
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold mb-0">Staff & Station Historical Deep-Dive</h4>
+        <small class="text-muted">Longitudinal career performance, station peer comparisons, and TAT trajectories</small>
+    </div>
+    
+    <form method="GET" action="/history" class="d-flex align-items-center gap-3">
+        <!-- Clean mode switch that resets target parameter -->
+        <select name="mode" class="form-select form-select-sm fw-bold border-secondary shadow-sm" style="width: 140px;" onchange="location.href='/history?mode=' + this.value;">
+            <option value="engineer" {{ 'selected' if mode == 'engineer' else '' }}>By Engineer</option>
+            <option value="station" {{ 'selected' if mode == 'station' else '' }}>By Station</option>
+        </select>
+        
+        <select name="target" class="form-select form-select-sm fw-bold border-primary text-primary shadow-sm" style="width: 280px;" onchange="this.form.submit()">
+            {% if mode == 'engineer' %}
+                {% for e in entity_list %}
+                    <option value="{{ e.id }}" {{ 'selected' if e.id|string == selected_target|string else '' }}>
+                        {{ e.formal_name }} ({{ e.station_name }}) {{ '[Resigned]' if e.is_resigned else '' }}
+                    </option>
+                {% endfor %}
+            {% else %}
+                {% for st in entity_list %}
+                    <option value="{{ st.name }}" {{ 'selected' if st.name == selected_target else '' }}>
+                        {{ st.name }} Station
+                    </option>
+                {% endfor %}
+            {% endif %}
+        </select>
+
+        {% if mode == 'engineer' %}
+        <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" name="show_resigned" value="1" id="resignedToggle" 
+                   {{ 'checked' if show_resigned else '' }} onchange="this.form.submit()">
+            <label class="form-check-label small text-secondary fw-semibold" for="resignedToggle">Show Resigned</label>
+        </div>
+        {% endif %}
+    </form>
+</div>
+
+<!-- 1. PROFILE & SCORECARD WITH ENHANCED CONTEXT -->
+<div class="card shadow-sm p-4 bg-white border-0 mb-4">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h4 class="fw-bold text-dark mb-1">{{ profile.title }}</h4>
+            <span class="badge bg-secondary fs-6">{{ profile.subtitle }}</span>
+            {% if profile.shift %}<span class="badge bg-light text-dark border ms-1">{{ profile.shift }} Shift</span>{% endif %}
+            {% if profile.joined %}<small class="text-muted ms-3">Joined: <strong>{{ profile.joined }}</strong></small>{% endif %}
+            {% if profile.tenure %}<span class="badge bg-light text-primary border ms-2">Tenure: {{ profile.tenure }}</span>{% endif %}
+            {% if profile.resigned %}<span class="badge bg-danger ms-2">Resigned: {{ profile.resigned }}</span>{% endif %}
+
+            {% if profile.timeline %}
+            <div class="mt-2">
+                <span class="badge bg-primary-subtle text-primary border">Career Path: {{ profile.timeline }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if mode == 'engineer' and profile.id %}
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm fw-bold shadow-sm" onclick="window.print()" title="Print or save 1-on-1 appraisal summary as PDF">
+                🖨️ Print 1-on-1 View
+            </button>
+            <a href="/export_engineer_calibrations/{{ profile.id }}" class="btn btn-outline-success btn-sm fw-bold shadow-sm">
+                📥 Export Calibrations (.xlsx)
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 4 KPI CARDS WITH TARGET DELTAS -->
+    <div class="row row-cols-2 row-cols-md-4 g-3 text-center mb-3">
+        <div class="col">
+            <div class="bg-light p-3 rounded shadow-sm h-100">
+                <small class="text-muted fw-bold d-block mb-1">TOTAL OUTPUT</small>
+                <h3 class="fw-bold text-primary mb-0">{{ lifetime.total_units }}</h3>
+                <small style="color: #495057;">units calibrated</small>
+            </div>
+        </div>
+        <div class="col">
+            <div class="bg-light p-3 rounded shadow-sm h-100">
+                <small class="text-muted fw-bold d-block mb-1">CAREER AVG P.I.</small>
+                <h3 class="fw-bold text-success mb-0">{{ lifetime.avg_pi }}</h3>
+                <small class="d-block" style="color: #495057;">units / equiv. day</small>
+                {% if mode == 'engineer' and lifetime.pi_diff is defined %}
+                    <span class="badge {{ 'bg-success-subtle text-success border border-success' if lifetime.pi_diff >= 0 else 'bg-danger-subtle text-danger border border-danger' }} mt-1" style="font-size: 0.72rem;">
+                        {{ '+' if lifetime.pi_diff >= 0 else '' }}{{ lifetime.pi_diff }} vs Target ({{ profile.base_target_pi }})
+                    </span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col">
+            <div class="bg-light p-3 rounded shadow-sm h-100">
+                <small class="text-muted fw-bold d-block mb-1">CAREER QUALITY</small>
+                <h3 class="fw-bold {{ 'text-success' if lifetime.avg_quality >= 98.0 else 'text-danger' }} mb-0">
+                    {{ lifetime.avg_quality }}%
+                </h3>
+                <small class="text-muted d-block">{{ lifetime.total_mistakes }} total mistakes</small>
+                {% if mode == 'engineer' and appraisal_summary.defect_rate is defined %}
+                    <span class="badge bg-light text-secondary border mt-1" style="font-size: 0.72rem;">
+                        Defect Rate: {{ appraisal_summary.defect_rate }}%
+                    </span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col">
+            <div class="bg-light p-3 rounded shadow-sm h-100">
+                <small class="text-muted fw-bold d-block mb-1">CAREER AVG TAT</small>
+                <h3 class="fw-bold text-info mb-0">{{ lifetime.avg_tat }}%</h3>
+                <small class="text-muted d-block">Target &ge; 90%</small>
+                <div id="tatTrajectoryBadge" class="mt-1"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. AUTOMATED EXECUTIVE APPRAISAL SUMMARY BANNER -->
+    {% if mode == 'engineer' and appraisal_summary.total_months %}
+    <div class="alert alert-light border shadow-sm p-3 mb-0">
+        <div class="d-flex align-items-center gap-2 mb-1">
+            <span class="fs-5">📋</span>
+            <strong class="text-dark">Performance Appraisal Insights:</strong>
+        </div>
+        <div class="row g-2 small text-secondary">
+            <div class="col-md-6">
+                <strong>⭐ Top Strengths:</strong> 
+                Consistent productivity hitting P.I. target in 
+                <strong class="text-success">{{ appraisal_summary.pi_met_cnt }} of {{ appraisal_summary.total_months }} months ({{ appraisal_summary.pi_hit_rate }}%)</strong>; 
+                Strongest turnaround in <strong class="text-primary">{{ appraisal_summary.top_category }} ({{ appraisal_summary.top_category_rate }}% Avg)</strong>.
+            </div>
+            <div class="col-md-6">
+                <strong>🎯 Coaching Focus:</strong> 
+                Turnaround SLA periodically dips in 
+                <strong class="text-danger">{{ appraisal_summary.low_category }} ({{ appraisal_summary.low_category_rate }}% Avg)</strong> 
+                during peak workload cycles.
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 3. TREND CHARTS WITH INTERACTIVE TOGGLES & REFERENCE LINES -->
+<div class="row g-4 mb-4">
+    <!-- Chart 1: Output & P.I. (Now includes Target P.I. Reference Line!) -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100 p-3 bg-white border-0">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h6 class="fw-bold text-dark mb-0">
+                    {{ "AE Monthly Output Comparison" if mode == 'station' else "Monthly Output & Productivity Journey" }}
+                </h6>
+                {% if mode == 'engineer' %}
+                <span class="badge bg-danger-subtle text-danger border border-danger">Target P.I. Line: {{ profile.base_target_pi }}</span>
+                {% endif %}
+            </div>
+            <small class="text-muted mb-2 d-block">
+                {{ "Compare volume completed by each engineer in this station" if mode == 'station' else "Volume (bars) vs. Productivity Index (green line) against target reference (red line)" }}
+            </small>
+            <div style="position: relative; height: 310px;">
+                <canvas id="historyChart1"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart 2: TAT Performance, Trendline & Category Switcher -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100 p-3 bg-white border-0">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h6 class="fw-bold text-dark mb-0">
+                    {{ "AE Productivity Index vs. Target" if mode == 'station' else "Turnaround Time (TAT) & Trendline" }}
+                </h6>
+                <span class="badge bg-danger">Target ≥ 90%</span>
+            </div>
+            
+            {% if mode == 'engineer' %}
+            <!-- Category Switcher Buttons for Chart 2 -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <small class="text-muted">Click category to inspect specific trendline:</small>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-primary btn-xs active" onclick="switchTatSeries('overall', this)">Overall</button>
+                    <button type="button" class="btn btn-outline-primary btn-xs" onclick="switchTatSeries('ete', this)">ETE</button>
+                    <button type="button" class="btn btn-outline-primary btn-xs" onclick="switchTatSeries('new', this)">NEW</button>
+                    <button type="button" class="btn btn-outline-primary btn-xs" onclick="switchTatSeries('psc_ext', this)">PSC_EXT</button>
+                    <button type="button" class="btn btn-outline-primary btn-xs" onclick="switchTatSeries('psc_int', this)">PSC_INT</button>
+                </div>
+            </div>
+            {% endif %}
+
+            <div style="position: relative; height: 300px;">
+                <canvas id="historyChart2"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 4. LEDGER (WITH STICKY HEADER, YEAR FILTERS & CONDITIONAL HIGHLIGHTING) -->
+{% if mode == 'engineer' %}
+<div class="card shadow-sm mb-4 bg-white border-0">
+    <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center py-3">
+        <div class="d-flex align-items-center gap-3">
+            <span>Career Month-by-Month Ledger</span>
+            <!-- Quick Year Filter Pills -->
+            <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-outline-secondary btn-xs active" onclick="filterLedgerYear('all', this)">All Time</button>
+                {% for yr in distinct_years %}
+                <button type="button" class="btn btn-outline-secondary btn-xs" onclick="filterLedgerYear('{{ yr }}', this)">{{ yr }}</button>
+                {% endfor %}
+            </div>
+        </div>
+        <small class="text-muted" id="ledgerRowCount">{{ ledger|length }} month(s) on record</small>
+    </div>
+
+    <!-- Scrollable container with STICKY table header -->
+    <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+        <table class="table table-hover align-middle mb-0 text-center" id="careerLedgerTable" style="font-size: 0.83rem;">
+            <thead class="sticky-table-header">
+                <tr>
+                    <th class="text-start">Month</th>
+                    <th>Station</th>
+                    <th>Output</th>
+                    <th>Hours</th>
+                    <th>Equiv. Days</th>
+                    <th>Target P.I.</th>
+                    <th class="table-primary">Actual P.I.</th>
+                    <th>Mistakes</th>
+                    <th>Quality %</th>
+                    <th>ETE %</th>
+                    <th>NEW %</th>
+                    <th>PSC_EXT %</th>
+                    <th>PSC_INT %</th>
+                    <th class="table-info">Overall TAT</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in ledger %}
+                <tr data-year="{{ r.year }}">
+                    <td class="text-start fw-bold text-nowrap">{{ r.period_label }}</td>
+                    <td>
+                        <span class="badge bg-secondary">{{ r.station }}</span>
+                        {% if r.transfer_note %}
+                            <br><span class="badge bg-primary text-white mt-1" style="font-size: 0.68rem;">🔁 {{ r.transfer_note }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="fw-bold text-primary">{{ r.units }}</td>
+                    <td>{{ r.hours }} hrs</td>
+                    <td>{{ r.equiv_days }}</td>
+                    <td class="text-muted fw-bold">{{ r.target_pi }}</td>
+                    
+                    <!-- Highlighted P.I. Column -->
+                    <td class="table-primary fw-bold fs-6">
+                        <span class="{{ 'text-success' if r.pi_met else 'text-danger' }}">{{ "%.1f"|format(r.pi) }}</span>
+                    </td>
+                    
+                    <td class="fw-bold text-secondary">{{ r.mistakes }}</td>
+                    <td class="fw-bold">
+                        <span class="{{ 'text-success' if r.quality >= 98.0 else 'text-danger' }}">
+                            {{ "%.1f"|format(r.quality) }}%
+                        </span>
+                    </td>
+                    
+                    <!-- CONDITIONAL BADGES ON CATEGORY TAT COLUMNS -->
+                    <!-- ETE % -->
+                    <td>
+                        {% if r.ete == 'N/A' %}
+                            <span class="text-muted">N/A</span>
+                        {% elif r.ete_num < 75 %}
+                            <span class="badge badge-soft-red">{{ r.ete }}</span>
+                        {% elif r.ete_num < 90 %}
+                            <span class="badge badge-soft-amber">{{ r.ete }}</span>
+                        {% else %}
+                            <span class="fw-semibold">{{ r.ete }}</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- NEW % -->
+                    <td>
+                        {% if r.new == 'N/A' %}
+                            <span class="text-muted">N/A</span>
+                        {% elif r.new_num < 75 %}
+                            <span class="badge badge-soft-red">{{ r.new }}</span>
+                        {% elif r.new_num < 90 %}
+                            <span class="badge badge-soft-amber">{{ r.new }}</span>
+                        {% else %}
+                            <span class="fw-semibold">{{ r.new }}</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- PSC_EXT % -->
+                    <td>
+                        {% if r.psc_ext == 'N/A' %}
+                            <span class="text-muted">N/A</span>
+                        {% elif r.psc_ext_num < 75 %}
+                            <span class="badge badge-soft-red">{{ r.psc_ext }}</span>
+                        {% elif r.psc_ext_num < 90 %}
+                            <span class="badge badge-soft-amber">{{ r.psc_ext }}</span>
+                        {% else %}
+                            <span class="fw-semibold">{{ r.psc_ext }}</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- PSC_INT % -->
+                    <td>
+                        {% if r.psc_int == 'N/A' %}
+                            <span class="text-muted">N/A</span>
+                        {% elif r.psc_int_num < 75 %}
+                            <span class="badge badge-soft-red">{{ r.psc_int }}</span>
+                        {% elif r.psc_int_num < 90 %}
+                            <span class="badge badge-soft-amber">{{ r.psc_int }}</span>
+                        {% else %}
+                            <span class="fw-semibold">{{ r.psc_int }}</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Overall TAT -->
+                    <td class="table-info fw-bold fs-6">
+                        {% if r.tat == 'N/A' %}
+                            <span class="text-muted">N/A</span>
+                        {% else %}
+                            <span class="{{ 'text-success' if r.tat_num >= 90 else 'text-danger' }}">{{ r.tat }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+<!-- STATION PEER COMPARISON VIEW -->
+<div class="card shadow-sm mb-4 bg-white border-0">
+    <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+        <span>Station Peer Comparison Breakdown</span>
+        <span class="badge bg-primary">Target P.I.: {{ profile.subtitle }}</span>
+    </div>
+    <div class="p-3">
+        {% for m in station_peers_ledger %}
+        <div class="mb-4 border rounded p-3 bg-light shadow-sm">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="fw-bold text-dark mb-0">{{ m.period_label }}</h5>
+                <div>
+                    <span class="badge bg-primary fs-6 me-2">Station Total: {{ m.station_units }} units</span>
+                    <span class="badge {{ 'bg-success' if m.station_pi_met else 'bg-danger' }} fs-6">Station P.I.: {{ m.station_pi }}</span>
+                </div>
+            </div>
+            <div class="table-responsive bg-white rounded border">
+                <table class="table table-hover align-middle mb-0 text-center" style="font-size: 0.83rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start">Engineer Name</th>
+                            <th>Output</th>
+                            <th>Working Hours</th>
+                            <th>Equiv. Days</th>
+                            <th class="text-center">Target P.I.</th>
+                            <th class="table-primary text-center">Actual P.I.</th>
+                            <th>Mistakes</th>
+                            <th>Quality %</th>
+                            <th class="table-info">Overall TAT</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in m.peers %}
+                        <tr>
+                            <td class="text-start fw-bold">{{ p.name }}</td>
+                            <td class="fw-bold text-primary">{{ p.units }}</td>
+                            <td>{{ p.hours }} hrs</td>
+                            <td>{{ p.equiv_days }}</td>
+                            <td class="text-center text-muted fw-bold">{{ p.target_pi }}</td>
+                            <td class="table-primary text-center fw-bold">
+                                <span class="{{ 'text-success' if p.pi_met else 'text-danger' }}">{{ p.pi }}</span>
+                            </td>
+                            <td class="fw-bold text-secondary">{{ p.mistakes }}</td>
+                            <td class="fw-bold">
+                                <span class="{{ 'text-success' if p.quality >= 98.0 else 'text-danger' }}">{{ p.quality }}%</span>
+                            </td>
+                            <td class="table-info fw-bold">{{ p.tat }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- INTERACTIVE SCRIPTS -->
+<script>
+    const chartLabels = {{ chart_labels | safe }};
+    const mode = "{{ mode }}";
+
+    {% if mode == 'station' %}
+        const stOutputDatasets = {{ station_ae_output_datasets | safe }};
+        const stPiDatasets = {{ station_ae_pi_datasets | safe }};
+
+        new Chart(document.getElementById('historyChart1'), {
+            type: 'bar',
+            data: { labels: chartLabels, datasets: stOutputDatasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+                scales: { y: { beginAtZero: true, title: { display: true, text: 'Units Calibrated' } } }
+            }
+        });
+
+        new Chart(document.getElementById('historyChart2'), {
+            type: 'line',
+            data: { labels: chartLabels, datasets: stPiDatasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                spanGaps: false,
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+                scales: { y: { beginAtZero: true, title: { display: true, text: 'Productivity Index' } } }
+            }
+        });
+
+    {% else %}
+        const chartUnits = {{ chart_units | safe }};
+        const chartPis = {{ chart_pis | safe }};
+        const chartQualities = {{ chart_qualities | safe }};
+        const chartTats = {{ chart_tats | safe }};
+        const chartEte = {{ chart_ete | safe }};
+        const chartNew = {{ chart_new | safe }};
+        const chartPscExt = {{ chart_psc_ext | safe }};
+        const chartPscInt = {{ chart_psc_int | safe }};
+        const baseTargetPi = {{ profile.base_target_pi | default(2.0) }};
+
+        // 1. CHART 1 (WITH TARGET P.I. DASHED REFERENCE LINE)
+        new Chart(document.getElementById('historyChart1'), {
+            data: {
+                labels: chartLabels,
+                datasets: [
+                    { 
+                        type: 'bar', 
+                        label: 'Units Completed', 
+                        data: chartUnits, 
+                        backgroundColor: 'rgba(13, 110, 253, 0.75)', 
+                        borderRadius: 4, 
+                        yAxisID: 'y',
+                        order: 2
+                    },
+                    { 
+                        type: 'line', 
+                        label: 'Actual P.I.', 
+                        data: chartPis, 
+                        borderColor: '#198754', 
+                        backgroundColor: '#198754', 
+                        borderWidth: 2, 
+                        pointRadius: 4, 
+                        yAxisID: 'y1',
+                        order: 1
+                    },
+                    {
+                        type: 'line',
+                        label: `Target P.I. (${baseTargetPi})`,
+                        data: chartLabels.map(() => baseTargetPi),
+                        borderColor: '#dc3545',
+                        borderWidth: 1.5,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        fill: false,
+                        yAxisID: 'y1',
+                        order: 3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top', labels: { boxWidth: 12 } }
+                },
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'Units' } },
+                    y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Productivity Index' } }
+                }
+            }
+        });
+
+        // 2. MATHEMATICAL LINEAR REGRESSION (y = mx + b)
+        function calculateLinearRegression(yValues) {
+            const validPoints = [];
+            yValues.forEach((y, x) => {
+                if (y !== null && y !== undefined && y > 0) {
+                    validPoints.push({ x: x, y: y });
+                }
+            });
+
+            const n = validPoints.length;
+            if (n < 2) return { trendPoints: yValues.map(() => null), slope: 0 };
+
+            let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+            validPoints.forEach(pt => {
+                sumX += pt.x;
+                sumY += pt.y;
+                sumXY += (pt.x * pt.y);
+                sumXX += (pt.x * pt.x);
+            });
+
+            const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+            const intercept = (sumY - slope * sumX) / n;
+
+            const trendPoints = yValues.map((val, x) => {
+                if (x >= validPoints[0].x && x <= validPoints[validPoints.length - 1].x) {
+                    return Math.min(100, Math.max(0, Math.round((slope * x + intercept) * 10) / 10));
+                }
+                return null;
+            });
+
+            return { trendPoints: trendPoints, slope: slope };
+        }
+
+        const { trendPoints, slope } = calculateLinearRegression(chartTats);
+
+        // Update Career Trajectory Badge in Scorecard (Threshold +-0.3% / mo)
+        const trajBadge = document.getElementById('tatTrajectoryBadge');
+        if (trajBadge) {
+            const slopeMonthly = slope.toFixed(1);
+            if (slope > 0.3) {
+                trajBadge.innerHTML = `<span class="badge bg-success-subtle text-success border border-success" style="font-size: 0.72rem;">↗ Improving (+${slopeMonthly}%/mo)</span>`;
+            } else if (slope < -0.3) {
+                trajBadge.innerHTML = `<span class="badge bg-danger-subtle text-danger border border-danger" style="font-size: 0.72rem;">↘ Declining (${slopeMonthly}%/mo)</span>`;
+            } else {
+                trajBadge.innerHTML = `<span class="badge bg-secondary-subtle text-secondary border" style="font-size: 0.72rem;">→ Steady (±0.0%/mo)</span>`;
+            }
+        }
+
+        // 3. CHART 2 (TAT DYNAMICS WITH EXPANDED 70-105% SCALE)
+        let chart2Instance = new Chart(document.getElementById('historyChart2'), {
+            type: 'line',
+            data: {
+                labels: chartLabels,
+                datasets: [
+                    { 
+                        label: 'Actual TAT', 
+                        data: chartTats, 
+                        borderColor: '#0dcaf0', 
+                        backgroundColor: '#0dcaf0', 
+                        borderWidth: 2, 
+                        pointRadius: 4,
+                        order: 1 
+                    },
+                    {
+                        label: 'TAT Trend', 
+                        data: trendPoints, 
+                        borderColor: '#fd7e14', 
+                        borderWidth: 2, 
+                        borderDash: [6, 4], 
+                        pointRadius: 0, 
+                        fill: false, 
+                        order: 2 
+                    },
+                    { 
+                        label: 'Quality', 
+                        data: chartQualities, 
+                        borderColor: '#0d6efd', 
+                        backgroundColor: '#0d6efd', 
+                        borderWidth: 2, 
+                        pointRadius: 4, 
+                        order: 3 
+                    },
+                    {
+                        label: 'Target (90%)', 
+                        data: chartLabels.map(() => 90.0), 
+                        borderColor: '#dc3545', 
+                        borderWidth: 1.5, 
+                        borderDash: [4, 4], 
+                        pointRadius: 0, 
+                        fill: false, 
+                        order: 4 
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top', labels: { boxWidth: 12, padding: 10 } },
+                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}%` } }
+                },
+                scales: {
+                    y: { 
+                        min: 70, 
+                        max: 105, 
+                        title: { display: true, text: 'Percentage (%)' }, 
+                        ticks: { stepSize: 10, callback: v => v <= 100 ? v + '%' : '' } 
+                    }
+                }
+            }
+        });
+
+        // 4. INTERACTIVE CATEGORY TAT SWITCHER FOR CHART 2
+        function switchTatSeries(category, btnElem) {
+            document.querySelectorAll('.btn-group .btn-xs').forEach(b => b.classList.remove('active'));
+            btnElem.classList.add('active');
+
+            let seriesData = chartTats;
+            let seriesLabel = 'Actual TAT';
+            if (category === 'ete') { seriesData = chartEte; seriesLabel = 'ETE TAT'; }
+            else if (category === 'new') { seriesData = chartNew; seriesLabel = 'NEW TAT'; }
+            else if (category === 'psc_ext') { seriesData = chartPscExt; seriesLabel = 'PSC_EXT TAT'; }
+            else if (category === 'psc_int') { seriesData = chartPscInt; seriesLabel = 'PSC_INT TAT'; }
+
+            const reg = calculateLinearRegression(seriesData);
+
+            chart2Instance.data.datasets[0].data = seriesData;
+            chart2Instance.data.datasets[0].label = seriesLabel;
+            chart2Instance.data.datasets[1].data = reg.trendPoints;
+            chart2Instance.data.datasets[1].label = `${seriesLabel} Trend`;
+            chart2Instance.update();
+        }
+
+        // 5. LEDGER TABLE YEAR FILTER
+        function filterLedgerYear(year, btnElem) {
+            btnElem.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            btnElem.classList.add('active');
+
+            const rows = document.querySelectorAll('#careerLedgerTable tbody tr');
+            let visibleCount = 0;
+
+            rows.forEach(r => {
+                if (year === 'all' || r.getAttribute('data-year') === year) {
+                    r.style.display = '';
+                    visibleCount++;
+                } else {
+                    r.style.display = 'none';
+                }
+            });
+
+            document.getElementById('ledgerRowCount').innerText = `${visibleCount} month(s) displayed`;
+        }
+    {% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .dropzone-box {
+        border: 2px dashed #0d6efd;
+        border-radius: 10px;
+        background-color: #f8f9fa;
+        padding: 30px;
+        text-align: center;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    .dropzone-box:hover {
+        background-color: #e9ecef;
+    }
+    .file-input-hidden { display: none; }
+</style>
+
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm p-4 border-0 bg-white mb-4">
+            <h4 class="fw-bold mb-1">Monthly Data Ingestion</h4>
+            <p class="text-muted small mb-4">Upload Calibrations, Attendance, or Rejection files. Pre-flight check will verify all data health before writing to SQLite.</p>
+
+            <form method="POST" action="/upload/inspect" enctype="multipart/form-data">
+                <!-- 1. CALIBRATIONS DROPZONE -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold mb-1">1. Calibration File (.xlsx / .xls)</label>
+                    <div class="dropzone-box" onclick="document.getElementById('calFile').click()">
+                        <div class="fs-1 text-primary mb-1">📦</div>
+                        <strong id="calLabel">Click to browse or drop Calibration file here</strong>
+                        <small class="text-muted d-block mt-1">Contains ServiceID, CalBy, CalDate, ModelID, etc.</small>
+                    </div>
+                    <input type="file" id="calFile" name="calibration_file" class="file-input-hidden" accept=".xlsx, .xls" onchange="updateLabel(this, 'calLabel')">
+                </div>
+
+                <!-- 2. ATTENDANCE DROPZONE -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold mb-1">2. Attendance Report (.xlsx / .xls)</label>
+                    <div class="dropzone-box" onclick="document.getElementById('attFile').click()">
+                        <div class="fs-1 text-success mb-1">📋</div>
+                        <strong id="attLabel">Click to browse or drop Attendance file here</strong>
+                        <small class="text-muted d-block mt-1">Monthly attendance report starting with leave code legend.</small>
+                    </div>
+                    <input type="file" id="attFile" name="attendance_file" class="file-input-hidden" accept=".xlsx, .xls" onchange="updateLabel(this, 'attLabel')">
+                </div>
+
+                <!-- 3. REJECTIONS DROPZONE -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold mb-1">3. Outgoing Inspection / Rejection File (.xlsx / .xls)</label>
+                    <div class="dropzone-box" onclick="document.getElementById('rejFile').click()">
+                        <div class="fs-1 text-danger mb-1">🛡️</div>
+                        <strong id="rejLabel">Click to browse or drop Rejection file here</strong>
+                        <small class="text-muted d-block mt-1">Contains failure reasons, remarks, model, and CalBy.</small>
+                    </div>
+                    <input type="file" id="rejFile" name="rejection_file" class="file-input-hidden" accept=".xlsx, .xls" onchange="updateLabel(this, 'rejLabel')">
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 fw-bold py-2 shadow-sm">
+                    🔍 Inspect & Run Pre-Flight Check
+                </button>
+            </form>
+        </div>
+
+        <!-- DATABASE AUDIT HEALTH STAMP -->
+        <div class="card shadow-sm p-3 bg-light border-0">
+            <h6 class="fw-bold mb-2 text-dark">Database Ingestion Health</h6>
+            <div class="row g-2 text-muted small">
+                <div class="col-md-4">
+                    <span class="d-block fw-bold text-secondary">Calibrations:</span>
+                    <span>Database active & indexed</span>
+                </div>
+                <div class="col-md-4">
+                    <span class="d-block fw-bold text-secondary">Attendance:</span>
+                    <span>Mapped to AE shifts (8h / 12h)</span>
+                </div>
+                <div class="col-md-4">
+                    <span class="d-block fw-bold text-secondary">Model Groups:</span>
+                    <span>Linked to Segment Groups</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function updateLabel(input, labelId) {
+        if (input.files && input.files[0]) {
+            document.getElementById(labelId).innerText = "✅ Selected: " + input.files[0].name;
+        }
+    }
+</script>
+{% endblock %}

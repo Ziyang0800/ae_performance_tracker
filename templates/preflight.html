@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-9">
+        <!-- HEADER -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h4 class="fw-bold mb-0">Pre-Flight Ingestion Inspection</h4>
+                <small class="text-muted">Review data health and unmapped technicians before writing to the database</small>
+            </div>
+            <span class="badge bg-warning text-dark px-3 py-2 fs-6">Pending Confirmation</span>
+        </div>
+
+        <!-- 1. CALIBRATIONS INSPECTION CARD -->
+        {% if cal_summary %}
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center py-2">
+                <span>1. Calibration File Inspection: {{ cal_summary.filename }}</span>
+                <span class="badge bg-primary">{{ cal_summary.period_label }}</span>
+            </div>
+            <div class="card-body bg-white p-3">
+                <div class="row g-3 text-center mb-3">
+                    <div class="col-md-3">
+                        <div class="bg-light p-2 rounded border">
+                            <small class="text-muted d-block fw-bold">TOTAL SCANNED</small>
+                            <h4 class="fw-bold text-dark mb-0">{{ cal_summary.total_rows }}</h4>
+                            <small class="text-muted">units in file</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="bg-light p-2 rounded border">
+                            <small class="text-muted d-block fw-bold">MATCHED TO TEAM</small>
+                            <h4 class="fw-bold text-success mb-0">{{ cal_summary.matched_units }}</h4>
+                            <small class="text-muted">{{ cal_summary.matched_ae_count }} AEs</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="bg-light p-2 rounded border">
+                            <small class="text-muted d-block fw-bold">MUTED / FTE UNITS</small>
+                            <h4 class="fw-bold text-secondary mb-0">{{ cal_summary.muted_units }}</h4>
+                            <small class="text-muted">{{ cal_summary.muted_count }} FTEs ignored</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="bg-light p-2 rounded border">
+                            <small class="text-muted d-block fw-bold">UNMAPPED UNITS</small>
+                            <h4 class="fw-bold {{ 'text-danger' if cal_summary.unmapped_units > 0 else 'text-success' }} mb-0">
+                                {{ cal_summary.unmapped_units }}
+                            </h4>
+                            <small class="text-muted">{{ cal_summary.unmapped_techs|length }} unknown users</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- UNMAPPED WARNING -->
+                {% if cal_summary.unmapped_techs %}
+                <div class="alert alert-danger py-2 mb-0">
+                    <strong>⚠️ Unmapped Technicians Detected:</strong>
+                    <p class="small mb-2">These users are not in your team roster and not muted. Their units will be skipped unless muted or added to the roster.</p>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for u in cal_summary.unmapped_techs %}
+                        <span class="badge bg-white text-dark border p-2">
+                            <code>{{ u.username }}</code> ({{ u.units }} units)
+                            <a href="/mute_technician?username={{ u.username }}&redirect=preflight" class="btn btn-outline-secondary btn-xs py-0 ms-2" title="Permanently mute (FTE/untracked)">
+                                🔕 Mute
+                            </a>
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="alert alert-success py-2 mb-0 small">
+                    ✅ <strong>Clean Calibration Data:</strong> All units are 100% accounted for by your active team or muted FTEs.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 2. ATTENDANCE INSPECTION CARD -->
+        {% if att_summary %}
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center py-2">
+                <span>2. Attendance File Inspection: {{ att_summary.filename }}</span>
+                <span class="badge bg-primary">{{ att_summary.period_label }}</span>
+            </div>
+            <div class="card-body bg-white p-3">
+                <div class="row g-3 text-center mb-3">
+                    <div class="col-md-4">
+                        <div class="bg-light p-2 rounded border">
+                            <small class="text-muted d-block fw-bold">TOTAL EMPLOYEES</small>
+                            <h4 class="fw-bold text-dark mb-0">{{ att_summary.total_staff }}</h4>
+                            <small class="text-muted">rows in sheet</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="bg-light p-2 rounded border">
+                            <small class="text-muted d-block fw-bold">MATCHED ACTIVE TEAM</small>
+                            <h4 class="fw-bold text-success mb-0">{{ att_summary.matched_roster_count }} / {{ att_summary.active_roster_total }}</h4>
+                            <small class="text-muted">AEs found</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="bg-light p-2 rounded border">
+                            <small class="text-muted d-block fw-bold">NON-ROSTER / OTHER</small>
+                            <h4 class="fw-bold text-secondary mb-0">{{ att_summary.unmatched_staff_count }}</h4>
+                            <small class="text-muted">other departments</small>
+                        </div>
+                    </div>
+                </div>
+
+                {% if att_summary.missing_roster_names %}
+                <div class="alert alert-warning py-2 mb-0 small">
+                    <strong>⚠️ Active Roster Members Missing from Attendance Sheet:</strong>
+                    <ul class="mb-0">
+                        {% for name in att_summary.missing_roster_names %}
+                        <li>{{ name }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% else %}
+                <div class="alert alert-success py-2 mb-0 small">
+                    ✅ <strong>Complete Attendance Coverage:</strong> All active team members were matched.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 3. ACTIONS BAR -->
+        <div class="card shadow-sm p-3 bg-white border-0 d-flex flex-row justify-content-between align-items-center">
+            <a href="/upload/cancel" class="btn btn-outline-secondary px-4 fw-bold">
+                ❌ Cancel & Discard
+            </a>
+            <form method="POST" action="/upload/confirm" class="mb-0">
+                <button type="submit" class="btn btn-success px-5 fw-bold shadow-sm">
+                    ✅ Confirm & Commit to Database
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

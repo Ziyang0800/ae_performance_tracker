@@ -1,0 +1,694 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .panel-card { border: 1px solid #dee2e6; border-radius: 6px; background: #ffffff; }
+    .panel-header-tab {
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        background: #f8f9fa;
+        border-left: 1px solid #dee2e6;
+        text-align: center;
+        font-weight: bold;
+        font-size: 0.78rem;
+        letter-spacing: 1px;
+        color: #495057;
+        width: 38px;
+    }
+    .timeline-tier-row {
+        display: flex;
+        font-size: 0.72rem;
+        text-align: center;
+        border-top: 1px solid #e9ecef;
+    }
+    .timeline-cell {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 2px 0;
+    }
+    .tier-year { font-weight: bold; color: #212529; background: #e9ecef; }
+    .tier-quarter { font-weight: 600; color: #495057; background: #f8f9fa; border-right: 1px solid #dee2e6; }
+    .tier-month { color: #6c757d; border-right: 1px solid #f1f3f5; }
+    
+    .slider-container {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 6px 14px;
+        background: #f8f9fa;
+        border-radius: 20px;
+        border: 1px solid #ced4da;
+    }
+    .custom-range-slider {
+        flex-grow: 1;
+        cursor: pointer;
+    }
+
+    .group-card {
+        border-left: 5px solid #0d6efd;
+        border-radius: 8px;
+        transition: transform 0.15s;
+    }
+    .group-card:hover { transform: translateY(-2px); }
+
+    .table-overall-row {
+        background-color: #f1f5f9 !important;
+        font-weight: bold;
+        border-top: 2px solid #64748b !important;
+        border-bottom: 2px solid #64748b !important;
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="fw-bold mb-0">Analytics & Performance Trends</h4>
+        <small class="text-muted">Longitudinal Category Multi-Trends, Lab Trajectory & Quarterly Segment Performance</small>
+    </div>
+</div>
+
+{% if not has_data %}
+<div class="alert alert-info shadow-sm p-4 text-center">
+    <h5>No data available yet!</h5>
+    <p class="mb-0 text-muted">Upload calibration data to view long-term performance trends.</p>
+</div>
+{% else %}
+
+<!-- ========================================================================= -->
+<!-- 1. COMPACT 4-PANEL PERFORMANCE CHART (SPOTFIRE STYLE)                     -->
+<!-- ========================================================================= -->
+<div class="card shadow-sm p-3 bg-white border-0 mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">AE Category Performance Trends (Volume & MOS %)</h6>
+        <div class="d-flex gap-3 align-items-center">
+            <span class="small fw-bold" style="color: #4a89dc;">■ Volume</span>
+            <span class="small fw-bold" style="color: #e74c3c;">● MOS (%)</span>
+        </div>
+    </div>
+
+    <div class="panel-card shadow-sm mb-2 overflow-hidden">
+        {% for cat_key, pdata in four_panel_data.items() %}
+        <div class="d-flex border-bottom" style="height: 105px;">
+            <div class="flex-grow-1 p-1 position-relative">
+                <div class="position-absolute end-0 top-0 p-1 pe-2" style="z-index: 10; font-size: 0.68rem;">
+                    <span class="badge bg-white text-dark border">
+                        Avg Vol: <strong class="text-primary">{{ pdata.avg_volume }}</strong> |
+                        Avg MOS: <strong class="{{ 'text-success' if pdata.avg_mos >= 90.0 else 'text-danger' }}">{{ pdata.avg_mos }}%</strong>
+                    </span>
+                </div>
+                <canvas id="chart_{{ cat_key }}"></canvas>
+            </div>
+            <div class="panel-header-tab d-flex align-items-center justify-content-center">
+                {{ cat_key }}
+            </div>
+        </div>
+        {% endfor %}
+
+        <!-- 3-TIER GROUPED TIMELINE AXIS (Month / Keysight Fiscal Quarter / FY) -->
+        <div class="d-flex bg-light">
+            <div class="flex-grow-1">
+                <div class="timeline-tier-row tier-month" id="timelineMonthsRow"></div>
+                <div class="timeline-tier-row tier-quarter" id="timelineQuartersRow"></div>
+                <div class="timeline-tier-row tier-year" id="timelineYearsRow"></div>
+            </div>
+            <div style="width: 38px; border-left: 1px solid #dee2e6; background: #e9ecef;"></div>
+        </div>
+    </div>
+
+    <!-- HORIZONTAL SCROLLBAR / RANGE FOCUS CONTROLLER -->
+    <div class="d-flex justify-content-center mt-2">
+        <div class="slider-container" style="width: 80%;">
+            <small class="text-muted fw-bold text-nowrap" id="sliderWindowLabel">Focus Window: All Months</small>
+            <input type="range" class="form-range custom-range-slider" id="timelineSlider" min="0" max="10" value="0">
+            <select class="form-select form-select-sm border-0 bg-transparent fw-bold text-primary" style="width: 140px;" id="windowSizeSelect">
+                <option value="12">Show 12 Months</option>
+                <option value="18">Show 18 Months</option>
+                <option value="all" selected>Show All</option>
+            </select>
+        </div>
+    </div>
+    <div class="text-center mt-1">
+        <small class="text-muted" style="font-size: 0.72rem;">CalDate (Month) — Drag slider to scroll through historical time periods</small>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 2. MIDDLE EXECUTIVE TREND CHARTS: P.I. (NO TARGET) & QUALITY/REJECTIONS  -->
+<!-- ========================================================================= -->
+<div class="row g-3 mb-4">
+    <!-- Chart A: Monthly Lab Productivity (P.I.) Trend (No Target Reference) -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100 p-3 bg-white border-0">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h6 class="fw-bold text-dark mb-0">Lab Productivity (P.I.) Trajectory</h6>
+                <span class="badge bg-light text-primary border">Units (Bars) vs P.I. (Curve)</span>
+            </div>
+            <small class="text-muted mb-2 d-block" style="font-size: 0.74rem;">
+                Historical lab output volume compared against daily productivity rate across all active AEs.
+            </small>
+            <div style="position: relative; height: 260px;">
+                <canvas id="labPiTrendChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart B: Monthly Quality Index & Outgoing Defects Trend -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100 p-3 bg-white border-0">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h6 class="fw-bold text-dark mb-0">Lab Quality Index & Defects Trajectory</h6>
+                <span class="badge bg-danger-subtle text-danger border border-danger">Target &ge; 98.0%</span>
+            </div>
+            <small class="text-muted mb-2 d-block" style="font-size: 0.74rem;">
+                Quality acceptance rate line plotted against total monthly outgoing inspection rejections (bars).
+            </small>
+            <div style="position: relative; height: 260px;">
+                <canvas id="labQualityTrendChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 3. QUARTERLY SEGMENT GROUP PERFORMANCE                                    -->
+<!-- ========================================================================= -->
+<div class="card shadow-sm p-4 bg-white border-0 mb-4">
+    {% if unmapped_models_in_quarter %}
+    <div class="alert alert-danger py-2 shadow-sm d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <strong>⚠️ {{ unmapped_models_in_quarter|length }} Unmapped Model(s) Found in {{ selected_quarter }}:</strong>
+            <small class="d-block text-danger">These models are currently unassigned and excluded from Segment Group metrics.</small>
+            <div class="d-flex flex-wrap gap-2 mt-1">
+                {% for um in unmapped_models_in_quarter %}
+                <span class="badge bg-white text-danger border">
+                    <code>{{ um.model_id }}</code> ({{ um.count }} units)
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        <button type="button" class="btn btn-danger btn-sm fw-bold shadow-sm text-nowrap ms-3" data-bs-toggle="modal" data-bs-target="#mapModelsModal">
+            Assign Groups Now
+        </button>
+    </div>
+    {% endif %}
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h5 class="fw-bold text-dark mb-0">Quarterly Segment Group Performance</h5>
+            <small class="text-muted">Averaged P.I. with Quarter-over-Quarter (QoQ) deltas on P.I., TAT, and Rejections</small>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <label class="small fw-bold text-muted text-nowrap">Fiscal Quarter:</label>
+            <select class="form-select form-select-sm fw-bold border-primary text-primary shadow-sm" style="width: 190px;" onchange="location.href='/analytics?quarter=' + this.value;">
+                {% for q in available_quarters %}
+                <option value="{{ q.key }}" {{ 'selected' if q.key == selected_quarter else '' }}>
+                    {{ q.label }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <a href="{{ url_for('export_quarterly_data', quarter=selected_quarter) }}" class="btn btn-outline-success btn-sm fw-bold shadow-sm" title="Download Excel audit file containing raw units and calculations">
+                📥 Export Calculation Data (.xlsx)
+            </a>
+        </div>
+    </div>
+
+    <!-- 4 Group Overview Cards -->
+    <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-4">
+        {% for g in quarterly_group_data %}
+        <div class="col">
+            <div class="card shadow-sm group-card bg-light p-3 h-100 border">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <strong class="text-dark small text-truncate" title="{{ g.group_name }}">{{ g.group_name }}</strong>
+                    <span class="badge bg-white text-dark border">{{ g.volume }} units</span>
+                </div>
+                <small class="text-muted d-block text-truncate mb-2" style="font-size: 0.72rem;" title="{{ g.supporting_stations }}">
+                    Stations: {{ g.supporting_stations }}
+                </small>
+
+                <!-- Monthly Output -->
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <small class="text-secondary fw-semibold">Avg Monthly Output:</small>
+                    <span class="badge bg-white text-primary border">
+                        {{ g.avg_monthly_output }} /mo
+                    </span>
+                </div>
+
+                <!-- Quarterly P.I. + QoQ -->
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <small class="text-secondary fw-semibold">Quarterly P.I.:</small>
+                    <div>
+                        <strong class="text-dark">{{ "%.1f"|format(g.pi) }}</strong>
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if g.qoq_pi_val > 0 else ('bg-danger-subtle text-danger border border-danger' if g.qoq_pi_val < 0 else 'bg-secondary-subtle text-secondary border') }}" style="font-size: 0.7rem;">
+                            {{ g.qoq_pi_str }} QoQ
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Weighted TAT + QoQ -->
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <small class="text-secondary fw-semibold">Weighted TAT:</small>
+                    <div>
+                        <span class="badge {{ 'bg-success' if g.tat_met else 'bg-danger' }}">{{ g.tat }}%</span>
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if g.qoq_tat_val > 0 else ('bg-danger-subtle text-danger border border-danger' if g.qoq_tat_val < 0 else 'bg-secondary-subtle text-secondary border') }}" style="font-size: 0.68rem;">
+                            {{ g.qoq_tat_str }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Quality Index + QoQ Rejections -->
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-secondary fw-semibold">Quality Index:</small>
+                    <div>
+                        <span class="badge {{ 'bg-success' if g.quality_met else 'bg-danger' }}">{{ g.quality }}%</span>
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if g.qoq_err_val < 0 else ('bg-danger-subtle text-danger border border-danger' if g.qoq_err_val > 0 else 'bg-secondary-subtle text-secondary border') }}" style="font-size: 0.68rem;" title="Inverse Rejection Delta: Decrease is Good">
+                            {{ g.qoq_err_str }} Rej
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Detailed Comparison Table with OVERALL Row -->
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 text-center" style="font-size: 0.83rem;">
+            <thead class="table-light">
+                <tr>
+                    <th class="text-start">Segment Group</th>
+                    <th class="text-start">Assigned Stations</th>
+                    <th>Quarter Volume</th>
+                    <th>Avg Monthly Output</th>
+                    <th class="table-primary">Quarterly P.I.</th>
+                    <th>QoQ &Delta; P.I.</th>
+                    <th>Weighted TAT %</th>
+                    <th>QoQ &Delta; TAT</th>
+                    <th>Rejections</th>
+                    <th>QoQ &Delta; Rej</th>
+                    <th>Quality %</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for g in quarterly_group_data %}
+                <tr>
+                    <td class="text-start fw-bold text-primary">{{ g.group_name }}</td>
+                    <td class="text-start text-muted">{{ g.supporting_stations }}</td>
+                    <td class="fw-bold">{{ g.volume }}</td>
+                    <td>{{ g.avg_monthly_output }} /mo</td>
+                    <td class="table-primary fw-bold fs-6">{{ "%.1f"|format(g.pi) }}</td>
+                    <td>
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if g.qoq_pi_val > 0 else ('bg-danger-subtle text-danger border border-danger' if g.qoq_pi_val < 0 else 'bg-secondary-subtle text-secondary border') }}">
+                            {{ g.qoq_pi_str }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="{{ 'text-success fw-bold' if g.tat_met else 'text-danger fw-bold' }}">
+                            {{ g.tat }}%
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if g.qoq_tat_val > 0 else ('bg-danger-subtle text-danger border border-danger' if g.qoq_tat_val < 0 else 'bg-secondary-subtle text-secondary border') }}">
+                            {{ g.qoq_tat_str }}
+                        </span>
+                    </td>
+                    <td class="fw-bold text-secondary">{{ g.errors }}</td>
+                    <td>
+                        <!-- Inverse color for defects: negative delta is green! -->
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if g.qoq_err_val < 0 else ('bg-danger-subtle text-danger border border-danger' if g.qoq_err_val > 0 else 'bg-secondary-subtle text-secondary border') }}">
+                            {{ g.qoq_err_str }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="{{ 'text-success fw-bold' if g.quality_met else 'text-danger fw-bold' }}">
+                            {{ g.quality }}%
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+
+                <!-- SUMMARY ROW: OVERALL -->
+                <tr class="table-overall-row">
+                    <td class="text-start text-dark fw-bold">{{ overall_row.group_name }}</td>
+                    <td class="text-start text-secondary">{{ overall_row.supporting_stations }}</td>
+                    <td class="text-dark fw-bold fs-6">{{ overall_row.volume }}</td>
+                    <td class="text-dark fw-bold">{{ overall_row.avg_monthly_output }} /mo</td>
+                    <td class="table-primary text-dark fw-bold fs-6">{{ "%.1f"|format(overall_row.pi) }}</td>
+                    <td>
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if overall_row.qoq_pi_val > 0 else ('bg-danger-subtle text-danger border border-danger' if overall_row.qoq_pi_val < 0 else 'bg-secondary-subtle text-secondary border') }}">
+                            {{ overall_row.qoq_pi_str }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="{{ 'text-success fw-bold fs-6' if overall_row.tat_met else 'text-danger fw-bold fs-6' }}">
+                            {{ overall_row.tat }}%
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if overall_row.qoq_tat_val > 0 else ('bg-danger-subtle text-danger border border-danger' if overall_row.qoq_tat_val < 0 else 'bg-secondary-subtle text-secondary border') }}">
+                            {{ overall_row.qoq_tat_str }}
+                        </span>
+                    </td>
+                    <td class="text-dark fw-bold">{{ overall_row.errors }}</td>
+                    <td>
+                        <span class="badge {{ 'bg-success-subtle text-success border border-success' if overall_row.qoq_err_val < 0 else ('bg-danger-subtle text-danger border border-danger' if overall_row.qoq_err_val > 0 else 'bg-secondary-subtle text-secondary border') }}">
+                            {{ overall_row.qoq_err_str }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="{{ 'text-success fw-bold' if overall_row.quality_met else 'text-danger fw-bold' }}">
+                            {{ overall_row.quality }}%
+                        </span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- MODAL: ASSIGN UNMAPPED MODELS -->
+{% if unmapped_models_in_quarter %}
+<div class="modal fade" id="mapModelsModal" tabindex="-1" aria-labelledby="mapModelsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="POST" action="/map_model_group">
+                <input type="hidden" name="quarter" value="{{ selected_quarter }}">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title fw-bold" id="mapModelsModalLabel">Assign Segment Groups to Unmapped Models</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">
+                        Assign each model to its proper segment group. Choosing <strong>MEC Lab</strong> will keep it out of active reports until the MECH LAB station is activated.
+                    </p>
+                    <div class="table-responsive" style="max-height: 350px; overflow-y: auto;">
+                        <table class="table table-sm table-bordered align-middle mb-0" style="font-size: 0.85rem;">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Model ID</th>
+                                    <th>Quarter Units</th>
+                                    <th>Assign Group</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for um in unmapped_models_in_quarter %}
+                                <input type="hidden" name="model_id" value="{{ um.model_id }}">
+                                <tr>
+                                    <td class="fw-bold font-monospace text-dark">{{ um.model_id }}</td>
+                                    <td><span class="badge bg-light text-dark border">{{ um.count }} units</span></td>
+                                    <td>
+                                        <select name="group_name" class="form-select form-select-sm fw-bold border-danger" required>
+                                            <option value="">-- Select Group --</option>
+                                            {% for grp in target_groups %}
+                                            <option value="{{ grp }}">{{ grp }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger fw-bold">Save & Apply Mappings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- SCRIPTS & CHART INITIALIZERS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const rawTimeline = {{ timeline_json | safe }};
+    const fourData = {{ four_panel_data | tojson | safe }};
+    const totalPeriods = rawTimeline.length;
+    let chartInstances = {};
+
+    // 1. TIERED AXIS (MONTH / FISCAL QUARTER / FY)
+    function renderTieredAxis(startIndex, endIndex) {
+        const monthsRow = document.getElementById('timelineMonthsRow');
+        const quartersRow = document.getElementById('timelineQuartersRow');
+        const yearsRow = document.getElementById('timelineYearsRow');
+
+        monthsRow.innerHTML = '';
+        quartersRow.innerHTML = '';
+        yearsRow.innerHTML = '';
+
+        const visibleTimeline = rawTimeline.slice(startIndex, endIndex);
+
+        visibleTimeline.forEach(item => {
+            const mDiv = document.createElement('div');
+            mDiv.className = 'timeline-cell';
+            mDiv.innerText = item.month_name;
+            monthsRow.appendChild(mDiv);
+        });
+
+        let qGroups = [];
+        visibleTimeline.forEach((item) => {
+            if (qGroups.length === 0 || qGroups[qGroups.length - 1].quarter !== item.quarter || qGroups[qGroups.length - 1].year !== item.fiscal_year) {
+                qGroups.push({ quarter: item.quarter, year: item.fiscal_year, count: 1 });
+            } else {
+                qGroups[qGroups.length - 1].count++;
+            }
+        });
+
+        qGroups.forEach(g => {
+            const qDiv = document.createElement('div');
+            qDiv.className = 'timeline-cell';
+            qDiv.style.flex = g.count;
+            qDiv.innerText = g.quarter;
+            quartersRow.appendChild(qDiv);
+        });
+
+        let yGroups = [];
+        visibleTimeline.forEach(item => {
+            const fyLabel = item.fiscal_year_label || `FY'${String(item.fiscal_year).slice(-2)}`;
+            if (yGroups.length === 0 || yGroups[yGroups.length - 1].year !== fyLabel) {
+                yGroups.push({ year: fyLabel, count: 1 });
+            } else {
+                yGroups[yGroups.length - 1].count++;
+            }
+        });
+
+        yGroups.forEach(g => {
+            const yDiv = document.createElement('div');
+            yDiv.className = 'timeline-cell';
+            yDiv.style.flex = g.count;
+            yDiv.innerText = g.year;
+            yearsRow.appendChild(yDiv);
+        });
+    }
+
+    // 2. COMPACT 4-PANEL SPOTFIRE CHARTS
+    function initFourPanels() {
+        Object.keys(fourData).forEach(catKey => {
+            const ctx = document.getElementById('chart_' + catKey);
+            chartInstances[catKey] = new Chart(ctx, {
+                data: {
+                    labels: rawTimeline.map(t => t.month_name),
+                    datasets: [
+                        {
+                            type: 'bar',
+                            data: fourData[catKey].volumes,
+                            backgroundColor: '#4a89dc',
+                            borderRadius: 2,
+                            barPercentage: 0.65,
+                            yAxisID: 'y_vol',
+                            order: 2
+                        },
+                        {
+                            type: 'line',
+                            data: fourData[catKey].mos_percentages,
+                            borderColor: '#e74c3c',
+                            backgroundColor: '#e74c3c',
+                            borderWidth: 1.5,
+                            pointRadius: 2.5,
+                            pointHoverRadius: 4,
+                            tension: 0.1,
+                            yAxisID: 'y_mos',
+                            order: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    layout: { padding: { left: 10, right: 10, top: 10, bottom: 2 } },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => rawTimeline[items[0].dataIndex].label,
+                                label: (context) => context.dataset.type === 'bar' ? `Volume: ${context.raw}` : `MOS: ${context.raw}%`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y_vol: {
+                            type: 'linear', position: 'left', beginAtZero: true,
+                            ticks: { font: { size: 8 }, maxTicksLimit: 3 },
+                            grid: { color: '#f1f3f5' }
+                        },
+                        y_mos: {
+                            type: 'linear', position: 'right', min: 0, max: 120,
+                            ticks: { font: { size: 8 }, stepSize: 40, callback: v => v <= 100 ? v + '%' : '' },
+                            grid: { drawOnChartArea: false }
+                        }
+                    }
+                }
+            });
+        });
+
+        updateTimelineView();
+    }
+
+    const slider = document.getElementById('timelineSlider');
+    const windowSelect = document.getElementById('windowSizeSelect');
+    const windowLabel = document.getElementById('sliderWindowLabel');
+
+    function updateTimelineView() {
+        const mode = windowSelect.value;
+        let startIndex = 0, endIndex = totalPeriods;
+
+        if (mode === 'all') {
+            slider.disabled = true;
+            startIndex = 0; endIndex = totalPeriods;
+            windowLabel.innerText = `Focus Window: All (${totalPeriods} Months)`;
+        } else {
+            slider.disabled = false;
+            const windowSize = parseInt(mode);
+            slider.max = Math.max(0, totalPeriods - windowSize);
+            startIndex = parseInt(slider.value);
+            endIndex = Math.min(totalPeriods, startIndex + windowSize);
+            windowLabel.innerText = `Focus: ${rawTimeline[startIndex].label} — ${rawTimeline[endIndex - 1].label}`;
+        }
+
+        Object.keys(chartInstances).forEach(catKey => {
+            const chart = chartInstances[catKey];
+            chart.data.labels = rawTimeline.slice(startIndex, endIndex).map(t => t.month_name);
+            chart.data.datasets[0].data = fourData[catKey].volumes.slice(startIndex, endIndex);
+            chart.data.datasets[1].data = fourData[catKey].mos_percentages.slice(startIndex, endIndex);
+            chart.update();
+        });
+
+        renderTieredAxis(startIndex, endIndex);
+    }
+
+    slider.addEventListener('input', updateTimelineView);
+    windowSelect.addEventListener('change', () => { slider.value = 0; updateTimelineView(); });
+
+    // 3. MIDDLE TREND CHARTS (P.I. NO TARGET & QUALITY TREND)
+    const mLabels = {{ monthly_labels | safe }};
+    const mPiVols = {{ monthly_pi_vols | safe }};
+    const mPis = {{ monthly_pis | safe }};
+    const mQuals = {{ monthly_qualities | safe }};
+    const mErrs = {{ monthly_errors | safe }};
+
+    function initMiddleCharts() {
+        // Chart A: Lab P.I. (No Target Reference Line)
+        new Chart(document.getElementById('labPiTrendChart'), {
+            data: {
+                labels: mLabels,
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'Completed Output',
+                        data: mPiVols,
+                        backgroundColor: 'rgba(13, 110, 253, 0.7)',
+                        borderRadius: 3,
+                        yAxisID: 'y_vol',
+                        order: 2
+                    },
+                    {
+                        type: 'line',
+                        label: 'Lab P.I.',
+                        data: mPis,
+                        borderColor: '#198754',
+                        backgroundColor: '#198754',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        tension: 0.15,
+                        yAxisID: 'y_pi',
+                        order: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } },
+                scales: {
+                    x: { ticks: { font: { size: 8 } } },
+                    y_vol: { beginAtZero: true, title: { display: true, text: 'Units' } },
+                    y_pi: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Productivity Index' } }
+                }
+            }
+        });
+
+        // Chart B: Quality % & Errors
+        new Chart(document.getElementById('labQualityTrendChart'), {
+            data: {
+                labels: mLabels,
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'Rejection Errors',
+                        data: mErrs,
+                        backgroundColor: 'rgba(220, 53, 69, 0.7)',
+                        borderRadius: 3,
+                        yAxisID: 'y_err',
+                        order: 2
+                    },
+                    {
+                        type: 'line',
+                        label: 'Quality Index %',
+                        data: mQuals,
+                        borderColor: '#0d6efd',
+                        backgroundColor: '#0d6efd',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        tension: 0.15,
+                        yAxisID: 'y_qual',
+                        order: 1
+                    },
+                    {
+                        type: 'line',
+                        label: 'Target (98%)',
+                        data: mLabels.map(() => 98.0),
+                        borderColor: '#dc3545',
+                        borderWidth: 1.5,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        fill: false,
+                        yAxisID: 'y_qual',
+                        order: 3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } },
+                scales: {
+                    x: { ticks: { font: { size: 8 } } },
+                    y_err: { beginAtZero: true, title: { display: true, text: 'Errors' } },
+                    y_qual: { min: 85, max: 102, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Quality %' }, ticks: { callback: v => v <= 100 ? v + '%' : '' } }
+                }
+            }
+        });
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        initFourPanels();
+        initMiddleCharts();
+    });
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,11 @@
+# Protect the database from being overwritten
+*.db
+performance_tracker.db
+
+# Ignore virtual environments
+.venv/
+venv/
+__pycache__/
+
+# Ignore temporary uploads
+temp_uploads/*
