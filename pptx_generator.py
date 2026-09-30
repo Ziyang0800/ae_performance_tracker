@@ -16,33 +16,35 @@ from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_DATA_LABEL_POS
 from pptx.chart.data import CategoryChartData
 from pptx.oxml import parse_xml
 
-BG_COLOR = RGBColor(43, 45, 47)  # Dark Charcoal #2B2D2F
-PURE_BLACK = RGBColor(0, 0, 0)  # Pure Black #000000
-CORAL_TITLE = RGBColor(255, 89, 118)  # #FF5976
-PINK_SUBTITLE = RGBColor(255, 199, 208)  # #FFC7D0
-PENTRAC_RED = RGBColor(214, 40, 57)  # Logo Box
-PENTRAC_BOX_RED = RGBColor(204, 0, 0)
+# =============================================================================
+# COLOR PALETTE DEFINITIONS
+# =============================================================================
+BG_COLOR = RGBColor(43, 45, 47)             # Dark Charcoal #2B2D2F
+PURE_BLACK = RGBColor(0, 0, 0)              # Pure Black #000000
+CORAL_TITLE = RGBColor(255, 89, 118)        # #FF5976
+PINK_SUBTITLE = RGBColor(255, 199, 208)     # #FFC7D0
+PENTRAC_RED = RGBColor(214, 40, 57)         # Accent Red
 
 # Table Headers
-TEAL_HEADER = RGBColor(64, 139, 150)  # #408B96 (Weekdays)
-ORANGE_HEADER = RGBColor(255, 103, 32)  # #FF6720 (Weekends)
-PH_HEADER = RGBColor(242, 169, 0)  # #F2A900 (Public Holidays)
-RUST_ORANGE = RGBColor(211, 84, 0)  # #D35400 (Summary Table Header)
-BLUE_HEADER = RGBColor(46, 117, 182)  # #2E75B6 (Quality Index Table Header)
-CREAM_BEIGE = RGBColor(253, 235, 208)  # #FDEBD0 (Average P.I. banner)
+TEAL_HEADER = RGBColor(64, 139, 150)        # #408B96 (Weekdays)
+ORANGE_HEADER = RGBColor(255, 103, 32)      # #FF6720 (Weekends)
+PH_HEADER = RGBColor(242, 169, 0)           # #F2A900 (Public Holidays)
+RUST_ORANGE = RGBColor(211, 84, 0)          # #D35400 (Summary Table Header)
+BLUE_HEADER = RGBColor(46, 117, 182)        # #2E75B6 (Quality Index Table Header)
+CREAM_BEIGE = RGBColor(253, 235, 208)       # #FDEBD0 (Average P.I. banner)
 
 # Executive KPI Matrix Palette
-PURPLE_HEADER = RGBColor(88, 44, 131)  # Deep Purple #582C83
-LAVENDER_TARGET = RGBColor(215, 199, 232)  # Soft Lavender #D7C7E8
-KPI_GREEN = RGBColor(0, 176, 80)  # Pass Green #00B050
-KPI_RED = RGBColor(231, 76, 60)  # Fail Red #E74C3C
+PURPLE_HEADER = RGBColor(88, 44, 131)       # Deep Purple #582C83
+LAVENDER_TARGET = RGBColor(215, 199, 232)   # Soft Lavender #D7C7E8
+KPI_GREEN = RGBColor(0, 176, 80)            # Pass Green #00B050
+KPI_RED = RGBColor(231, 76, 60)             # Fail Red #E74C3C
 
-# Resource Level Report Palette (Image 1)
-RES_PINK = RGBColor(255, 107, 129)  # Month Header
-RES_BLUE = RGBColor(0, 123, 255)  # Actual Headcount Header
-RES_GREEN = RGBColor(0, 176, 80)  # Target Header
-RES_YELLOW = RGBColor(255, 193, 7)  # Shortfall Header
-RES_STEEL = RGBColor(122, 165, 210)  # Remarks Header
+# Resource Level Report Palette (Slide 4)
+RES_PINK = RGBColor(255, 107, 129)          # Month Header
+RES_BLUE = RGBColor(0, 123, 255)            # Actual Headcount Header
+RES_GREEN = RGBColor(0, 176, 80)            # Target Header
+RES_YELLOW = RGBColor(255, 193, 7)          # Shortfall Header
+RES_STEEL = RGBColor(122, 165, 210)         # Remarks Header
 RES_ROW_PINK = RGBColor(245, 220, 225)
 RES_ROW_BLUE = RGBColor(190, 218, 245)
 RES_ROW_GREEN = RGBColor(168, 216, 168)
@@ -50,43 +52,43 @@ RES_ROW_YELLOW = RGBColor(255, 230, 153)
 RES_ROW_STEEL = RGBColor(220, 234, 250)
 
 # Odd Person (Rows 1 & 2)
-ODD_WEEKDAY = RGBColor(255, 255, 255)  # #FFFFFF
-ODD_WEEKEND = RGBColor(255, 225, 210)  # #FFE1D2
-ODD_PH = RGBColor(255, 239, 201)  # #FFEFC9
+ODD_WEEKDAY = RGBColor(255, 255, 255)       # #FFFFFF
+ODD_WEEKEND = RGBColor(255, 225, 210)       # #FFE1D2
+ODD_PH = RGBColor(255, 239, 201)            # #FFEFC9
 
 # Even Person (Rows 3 & 4)
-EVEN_WEEKDAY = RGBColor(193, 224, 228)  # #C1E0E4
-EVEN_WEEKEND = RGBColor(255, 194, 166)  # #FFC2A6
-EVEN_PH = RGBColor(255, 223, 148)  # #FFDF94
+EVEN_WEEKDAY = RGBColor(193, 224, 228)      # #C1E0E4
+EVEN_WEEKEND = RGBColor(255, 194, 166)      # #FFC2A6
+EVEN_PH = RGBColor(255, 223, 148)           # #FFDF94
 
 # Special Typography Colors
-CODE_SPECIAL = RGBColor(255, 89, 118)  # #FF5976 Bold
+CODE_SPECIAL = RGBColor(255, 89, 118)       # #FF5976 Bold
 TEXT_BLACK = RGBColor(0, 0, 0)
 WHITE_TEXT = RGBColor(255, 255, 255)
 
 # Containers & MoM Pill Box
 CONTAINER_BG = RGBColor(255, 255, 255)
-CARD_BORDER = RGBColor(74, 189, 196)  # #4ABDC4
+CARD_BORDER = RGBColor(74, 189, 196)        # #4ABDC4
 SUMMARY_CARD_BORDER = RGBColor(241, 148, 138)
-PILL_BG = RGBColor(216, 243, 245)  # #D8F3F5
-PILL_BORDER = RGBColor(74, 189, 196)  # #4ABDC4
-GREEN_DELTA = RGBColor(46, 204, 113)  # #2ECC71
-RED_DELTA = RGBColor(231, 76, 60)  # #E74C3C
+PILL_BG = RGBColor(216, 243, 245)           # #D8F3F5
+PILL_BORDER = RGBColor(74, 189, 196)        # #4ABDC4
+GREEN_DELTA = RGBColor(46, 204, 113)        # #2ECC71
+RED_DELTA = RGBColor(231, 76, 60)           # #E74C3C
 
 # Station Chart Colors
 CHART_SERIES_COLORS = [
-    RGBColor(255, 192, 0),  # Gold
-    RGBColor(55, 96, 146),  # Steel Blue
-    RGBColor(0, 176, 80),  # Green
+    RGBColor(255, 192, 0),   # Gold
+    RGBColor(55, 96, 146),   # Steel Blue
+    RGBColor(0, 176, 80),    # Green
     RGBColor(155, 89, 182),  # Purple
-    RGBColor(230, 126, 34)  # Orange
+    RGBColor(230, 126, 34)   # Orange
 ]
 
 # Summary Combo Chart Colors
-OUTPUT_PURPLE = RGBColor(91, 52, 138)  # #5B348A (Clustered Column)
-GOLD_PI = RGBColor(255, 192, 0)  # #FFC000 (P.I. Line)
-BLACK_TARGET = RGBColor(0, 0, 0)  # #000000 (Min Target)
-GREEN_ACTUAL = RGBColor(0, 176, 80)  # #00B050 (Quality Index Actual Line)
+OUTPUT_PURPLE = RGBColor(91, 52, 138)       # #5B348A (Clustered Column)
+GOLD_PI = RGBColor(255, 192, 0)             # #FFC000 (P.I. Line)
+BLACK_TARGET = RGBColor(0, 0, 0)            # #000000 (Min Target)
+GREEN_ACTUAL = RGBColor(0, 176, 80)         # #00B050 (Quality Index Actual Line)
 
 
 def normalize_str(s):
@@ -99,8 +101,7 @@ def get_image_path(filename):
     exact_path = os.path.join(base_dir, filename)
     if os.path.exists(exact_path):
         return exact_path
-
-    # Case-insensitive fallback for Linux
+    
     try:
         for f in os.listdir(base_dir):
             if f.lower() == filename.lower():
@@ -135,13 +136,20 @@ def is_working_day_status(raw_status):
         return False
 
 
-def format_cell_native(cell, fill_rgb, text, font_size=8, bold=False, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER):
+def format_cell_native(cell, fill_rgb, text, font_size=8, bold=False, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER, margin_left=None):
     cell.fill.solid()
     cell.fill.fore_color.rgb = fill_rgb
-    cell.margin_left = Inches(0.01)
+    
+    if margin_left is not None:
+        cell.margin_left = Inches(margin_left) if isinstance(margin_left, (int, float)) else margin_left
+    elif align == PP_ALIGN.LEFT:
+        cell.margin_left = Inches(0.14)
+    else:
+        cell.margin_left = Inches(0.01)
+
     cell.margin_right = Inches(0.01)
-    cell.margin_top = Inches(0.01)
-    cell.margin_bottom = Inches(0.01)
+    cell.margin_top = Inches(0.02)
+    cell.margin_bottom = Inches(0.02)
     cell.vertical_anchor = MSO_ANCHOR.MIDDLE
     cell.text = str(text) if text is not None else ""
     for p in cell.text_frame.paragraphs:
@@ -184,20 +192,19 @@ def parse_iso_date(date_val):
 
 def resolve_engineer_station(conn, engineer_id, fallback_station_id, rep_year, rep_month):
     row = conn.execute("""
-                       SELECT h.station_id, s.name as station_name, s.sort_order, s.target_pi
-                       FROM engineer_station_history h
-                                JOIN stations s ON h.station_id = s.id
-                       WHERE h.engineer_id = ?
-                         AND (h.effective_year < ? OR (h.effective_year = ? AND h.effective_month <= ?))
-                       ORDER BY h.effective_year DESC, h.effective_month DESC LIMIT 1
-                       """, (engineer_id, rep_year, rep_year, rep_month)).fetchone()
+        SELECT h.station_id, s.name as station_name, s.sort_order, s.target_pi
+        FROM engineer_station_history h
+        JOIN stations s ON h.station_id = s.id
+        WHERE h.engineer_id = ? 
+          AND (h.effective_year < ? OR (h.effective_year = ? AND h.effective_month <= ?))
+        ORDER BY h.effective_year DESC, h.effective_month DESC
+        LIMIT 1
+    """, (engineer_id, rep_year, rep_year, rep_month)).fetchone()
 
     if row:
         return row["station_id"], row["station_name"], row["sort_order"], row["target_pi"]
-
-    fb = conn.execute(
-        "SELECT s.id as station_id, s.name as station_name, s.sort_order, s.target_pi FROM stations s WHERE s.id = ?",
-        (fallback_station_id,)).fetchone()
+    
+    fb = conn.execute("SELECT s.id as station_id, s.name as station_name, s.sort_order, s.target_pi FROM stations s WHERE s.id = ?", (fallback_station_id,)).fetchone()
     if fb:
         return fb["station_id"], fb["station_name"], fb["sort_order"], fb["target_pi"]
     return None, "Unassigned", 99, 3.0
@@ -208,23 +215,8 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
     slide = prs.slides.add_slide(blank_layout)
     set_slide_background(slide, prs, "Grey Wave.png", BG_COLOR)
 
-    badge = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.4), Inches(0.38), Inches(1.05), Inches(0.55))
-    badge.fill.solid()
-    badge.fill.fore_color.rgb = PENTRAC_BOX_RED
-    badge.line.fill.background()
-    tf_b = badge.text_frame
-    tf_b.margin_left, tf_b.margin_right, tf_b.margin_top, tf_b.margin_bottom = Inches(0.02), Inches(0.02), Inches(
-        0.04), Inches(0.04)
-    p_b1 = tf_b.paragraphs[0]
-    p_b1.text = "PENTRAC"
-    p_b1.font.name, p_b1.font.bold, p_b1.font.size, p_b1.font.color.rgb = "Arial", True, Pt(8.5), WHITE_TEXT
-    p_b1.alignment = PP_ALIGN.CENTER
-    p_b2 = tf_b.add_paragraph()
-    p_b2.text = "ITRON"
-    p_b2.font.name, p_b2.font.bold, p_b2.font.size, p_b2.font.color.rgb = "Arial", True, Pt(8.5), WHITE_TEXT
-    p_b2.alignment = PP_ALIGN.CENTER
-
-    t_box = slide.shapes.add_textbox(Inches(1.6), Inches(0.35), Inches(11.3), Inches(0.65))
+    # Slide Title (Logo removed as requested)
+    t_box = slide.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65))
     p_t = t_box.text_frame.paragraphs[0]
     p_t.text = "CAL LAB OPERATIONS KPI SCORECARD"
     p_t.font.name, p_t.font.bold, p_t.font.size, p_t.font.color.rgb = "Arial", True, Pt(26), CORAL_TITLE
@@ -241,15 +233,12 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
 
     month_cols = [f"{calendar.month_abbr[m_num]}'{str(y_num)[-2:]}" for y_num, m_num in rolling_3]
 
-    kpi_rows = conn.execute(
-        "SELECT kpi_key, kpi_name, target_label, target_value, unit FROM kpi_configs ORDER BY rowid").fetchall()
+    kpi_rows = conn.execute("SELECT kpi_key, kpi_name, target_label, target_value, unit FROM kpi_configs ORDER BY rowid").fetchall()
     kpi_map = {r["kpi_key"]: r for r in kpi_rows}
     target_header_label = kpi_rows[0]["target_label"] if kpi_rows else "Q2 FY'26 Target"
 
-    all_engineers = conn.execute(
-        "SELECT id, formal_name, username, station_id, shift_hours, activation_date, resigned_date FROM engineers WHERE track_performance = 1").fetchall()
-    muted_users = set(
-        [r[0].strip().lower() for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+    all_engineers = conn.execute("SELECT id, formal_name, username, station_id, shift_hours, activation_date, resigned_date FROM engineers WHERE track_performance = 1").fetchall()
+    muted_users = set([r[0].strip().lower() for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
 
     actual_data = {m_lbl: {} for m_lbl in month_cols}
 
@@ -270,10 +259,8 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
             act_d = parse_iso_date(e["activation_date"])
             res_d = parse_iso_date(e["resigned_date"])
 
-            if not act_d or act_d > m_end:
-                continue
-            if res_d and res_d < m_start:
-                continue
+            if not act_d or act_d > m_end: continue
+            if res_d and res_d < m_start: continue
 
             st_id, st_name, _, _ = resolve_engineer_station(conn, e["id"], e["station_id"], y_num, m_num)
             st_row = conn.execute("SELECT is_active FROM stations WHERE id = ?", (st_id,)).fetchone()
@@ -296,35 +283,40 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
         else:
             df_c = pd.DataFrame()
 
+        # Metric 1: ETE Priority Management System
         actual_data[m_lbl]["ete_priority"] = 100.0
 
+        # Metric 2: Electrical ETE CRD TAT
         if not df_c.empty:
             df_ete = df_c[df_c["category"].astype(str).str.strip().str.upper() == "CRD_ETE"]
-            actual_data[m_lbl]["ete_crd_tat"] = round(((df_ete["mos"] == 1).sum() / len(df_ete)) * 100.0) if len(
-                df_ete) > 0 else 100.0
+            actual_data[m_lbl]["ete_crd_tat"] = round(((df_ete["mos"] == 1).sum() / len(df_ete)) * 100.0) if len(df_ete) > 0 else 100.0
         else:
             actual_data[m_lbl]["ete_crd_tat"] = 100.0
 
+        # Metric 3: Trade Unit (CRD) & Metric 4: KRS Unit (CRD)
         if not df_c.empty:
             df_new = df_c[df_c["category"].astype(str).str.strip().str.upper() == "CRD_NEW"]
             mask_krs = df_new["sender_dept"].astype(str).str.upper().str.contains(r"AX63/RSD|AX63/RSD/AC", regex=True)
             df_trade = df_new[~mask_krs]
             df_krs = df_new[mask_krs]
 
-            actual_data[m_lbl]["trade_unit"] = round(((df_trade["mos"] == 1).sum() / len(df_trade)) * 100.0) if len(
-                df_trade) > 0 else 92.0
-            actual_data[m_lbl]["krs_unit"] = round(((df_krs["mos"] == 1).sum() / len(df_krs)) * 100.0) if len(
-                df_krs) > 0 else 97.0
+            actual_data[m_lbl]["trade_unit"] = round(((df_trade["mos"] == 1).sum() / len(df_trade)) * 100.0) if len(df_trade) > 0 else 92.0
+            actual_data[m_lbl]["krs_unit"] = round(((df_krs["mos"] == 1).sum() / len(df_krs)) * 100.0) if len(df_krs) > 0 else 97.0
         else:
             actual_data[m_lbl]["trade_unit"] = 92.0
             actual_data[m_lbl]["krs_unit"] = 97.0
 
-        actual_data[m_lbl]["kgso_ext"] = 100.0
+        # Metric 5: KGSO External CRD (using PSC_EXT)
+        if not df_c.empty:
+            df_psc_ext = df_c[df_c["category"].astype(str).str.strip().str.upper() == "PSC_EXT"]
+            actual_data[m_lbl]["kgso_ext"] = round(((df_psc_ext["mos"] == 1).sum() / len(df_psc_ext)) * 100.0) if len(df_psc_ext) > 0 else 100.0
+        else:
+            actual_data[m_lbl]["kgso_ext"] = 100.0
 
+        # Metric 6: Productivity Index
         total_units = len(df_c)
-        df_att_month = pd.read_sql("SELECT formal_name, capped_hours FROM attendance WHERE year = ? AND month = ?",
-                                   conn, params=[y_num, m_num])
-
+        df_att_month = pd.read_sql("SELECT formal_name, capped_hours, year, month FROM attendance WHERE year = ? AND month = ?", conn, params=[y_num, m_num])
+        
         eff_days_sum = 0.0
         if not df_att_month.empty:
             for _, att_row in df_att_month.iterrows():
@@ -335,6 +327,7 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
 
         actual_data[m_lbl]["pi"] = round(total_units / eff_days_sum, 1) if eff_days_sum > 0 else 3.2
 
+    # Table Layout
     t_shape = slide.shapes.add_table(8, 5, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.6))
     tbl = t_shape.table
     set_native_table_grid_style(tbl)
@@ -374,19 +367,16 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
         t_val = k_cfg["target_value"]
         t_unit = k_cfg["unit"]
 
-        format_cell_native(tbl.cell(row_idx, 0), WHITE_TEXT, k_cfg["kpi_name"], font_size=11, bold=True,
-                           text_color=TEXT_BLACK, align=PP_ALIGN.CENTER)
+        format_cell_native(tbl.cell(row_idx, 0), WHITE_TEXT, k_cfg["kpi_name"], font_size=11, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER)
         t_disp = f"≥{t_val:.1f}" if t_unit == "units" else f"{int(t_val)}%"
-        format_cell_native(tbl.cell(row_idx, 1), LAVENDER_TARGET, t_disp, font_size=13, bold=False,
-                           text_color=TEXT_BLACK)
+        format_cell_native(tbl.cell(row_idx, 1), LAVENDER_TARGET, t_disp, font_size=13, bold=False, text_color=TEXT_BLACK)
 
         for col_i, m_lbl in enumerate(month_cols, start=2):
             val = actual_data[m_lbl].get(key, 0.0)
             is_met = val >= t_val
             cell_bg = KPI_GREEN if is_met else KPI_RED
             disp_str = f"{val:.1f}" if t_unit == "units" else f"{int(round(val))}%"
-            format_cell_native(tbl.cell(row_idx, col_i), cell_bg, disp_str, font_size=13, bold=False,
-                               text_color=TEXT_BLACK)
+            format_cell_native(tbl.cell(row_idx, col_i), cell_bg, disp_str, font_size=13, bold=False, text_color=TEXT_BLACK)
 
 
 def generate_monthly_deck(conn, year, month):
@@ -404,38 +394,25 @@ def generate_monthly_deck(conn, year, month):
     prev_m = 12 if month == 1 else month - 1
     prev_y = year - 1 if month == 1 else year
 
-    stations = conn.execute(
-        "SELECT id, name, sort_order, target_pi FROM stations WHERE is_active = 1 AND name NOT LIKE '%MECH%' ORDER BY sort_order ASC, name ASC").fetchall()
+    stations = conn.execute("SELECT id, name, sort_order, target_pi FROM stations WHERE is_active = 1 AND name NOT LIKE '%MECH%' ORDER BY sort_order ASC, name ASC").fetchall()
 
-    df_cal_cur = pd.read_sql("SELECT cal_by, cal_day FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn,
-                             params=[year, month])
-    df_cal_prev = pd.read_sql(
-        "SELECT cal_by, COUNT(*) as units FROM calibrations WHERE cal_year = ? AND cal_month = ? GROUP BY cal_by", conn,
-        params=[prev_y, prev_m])
+    df_cal_cur = pd.read_sql("SELECT cal_by, cal_day FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[year, month])
+    df_cal_prev = pd.read_sql("SELECT cal_by, COUNT(*) as units FROM calibrations WHERE cal_year = ? AND cal_month = ? GROUP BY cal_by", conn, params=[prev_y, prev_m])
     prev_user_cal_map = dict(zip(df_cal_prev["cal_by"], df_cal_prev["units"])) if not df_cal_prev.empty else {}
 
-    df_att_cur = pd.read_sql(
-        "SELECT formal_name, day, raw_status, capped_hours FROM attendance WHERE year = ? AND month = ?", conn,
-        params=[year, month])
+    df_att_cur = pd.read_sql("SELECT formal_name, day, raw_status, capped_hours FROM attendance WHERE year = ? AND month = ?", conn, params=[year, month])
     if not df_att_cur.empty:
         df_att_cur["clean_name"] = df_att_cur["formal_name"].str.strip().str.lower()
 
-    df_att_prev = pd.read_sql(
-        "SELECT formal_name, SUM(capped_hours) as tot_hrs FROM attendance WHERE year = ? AND month = ? GROUP BY formal_name",
-        conn, params=[prev_y, prev_m])
-    prev_user_hrs_map = dict(zip(df_att_prev["formal_name"].str.strip().str.lower(),
-                                 df_att_prev["tot_hrs"])) if not df_att_prev.empty else {}
+    df_att_prev = pd.read_sql("SELECT formal_name, SUM(capped_hours) as tot_hrs FROM attendance WHERE year = ? AND month = ? GROUP BY formal_name", conn, params=[prev_y, prev_m])
+    prev_user_hrs_map = dict(zip(df_att_prev["formal_name"].str.strip().str.lower(), df_att_prev["tot_hrs"])) if not df_att_prev.empty else {}
 
-    all_engineers = conn.execute(
-        "SELECT id, formal_name, username, display_name, station_id, shift_hours, activation_date, resigned_date, is_active, track_performance FROM engineers ORDER BY formal_name").fetchall()
+    all_engineers = conn.execute("SELECT id, formal_name, username, display_name, station_id, shift_hours, activation_date, resigned_date, is_active, track_performance FROM engineers ORDER BY formal_name").fetchall()
     user_cur_units_map = df_cal_cur["cal_by"].value_counts().to_dict() if not df_cal_cur.empty else {}
-    username_to_name = {e["username"].strip().lower(): (e["display_name"] or e["formal_name"].split()[0]) for e in
-                        all_engineers}
+    username_to_name = {e["username"].strip().lower(): (e["display_name"] or e["formal_name"].split()[0]) for e in all_engineers}
 
-    roster_users = set(
-        [e["username"].strip().lower() for e in all_engineers if e["is_active"] and e["track_performance"]])
-    muted_users = set(
-        [r[0].strip().lower() for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+    roster_users = set([e["username"].strip().lower() for e in all_engineers if e["is_active"] and e["track_performance"]])
+    muted_users = set([r[0].strip().lower() for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
 
     # SLIDE 1: COVER TITLE SLIDE
     slide1 = prs.slides.add_slide(blank_layout)
@@ -464,8 +441,7 @@ def generate_monthly_deck(conn, year, month):
     tf2 = t_box2.text_frame
     p2_title = tf2.paragraphs[0]
     p2_title.text = "Meeting Agenda:"
-    p2_title.font.name, p2_title.font.bold, p2_title.font.size, p2_title.font.underline, p2_title.font.color.rgb = "Arial", True, Pt(
-        42), True, CORAL_TITLE
+    p2_title.font.name, p2_title.font.bold, p2_title.font.size, p2_title.font.underline, p2_title.font.color.rgb = "Arial", True, Pt(42), True, CORAL_TITLE
 
     agenda_items = [
         "1. Resource Level Report",
@@ -490,37 +466,19 @@ def generate_monthly_deck(conn, year, month):
     p3.alignment = PP_ALIGN.CENTER
 
     # =========================================================================
-    # SLIDE 4: RESOURCE LEVEL REPORT (INCLUDES MECH LAB & ADMINS UNLESS RESIGNED)
+    # SLIDE 4: RESOURCE LEVEL REPORT (LOGO REMOVED)
     # =========================================================================
     slide4 = prs.slides.add_slide(blank_layout)
     set_slide_background(slide4, prs, "Grey Wave.png", BG_COLOR)
 
-    # Top-Left Logo Badge
-    badge4 = slide4.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.4), Inches(0.38), Inches(1.05), Inches(0.55))
-    badge4.fill.solid()
-    badge4.fill.fore_color.rgb = PENTRAC_BOX_RED
-    badge4.line.fill.background()
-    tf_b4 = badge4.text_frame
-    tf_b4.margin_left, tf_b4.margin_right, tf_b4.margin_top, tf_b4.margin_bottom = Inches(0.02), Inches(0.02), Inches(
-        0.04), Inches(0.04)
-    p_b4_1 = tf_b4.paragraphs[0]
-    p_b4_1.text = "PENTRAC"
-    p_b4_1.font.name, p_b4_1.font.bold, p_b4_1.font.size, p_b4_1.font.color.rgb = "Arial", True, Pt(8.5), WHITE_TEXT
-    p_b4_1.alignment = PP_ALIGN.CENTER
-    p_b4_2 = tf_b4.add_paragraph()
-    p_b4_2.text = "ITRON"
-    p_b4_2.font.name, p_b4_2.font.bold, p_b4_2.font.size, p_b4_2.font.color.rgb = "Arial", True, Pt(8.5), WHITE_TEXT
-    p_b4_2.alignment = PP_ALIGN.CENTER
-
-    # Title at Horizontal 1.51", Vertical 0.37"
+    # Title at Horizontal 1.51", Vertical 0.37" (Logo removed)
     t_box4 = slide4.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65))
     p4 = t_box4.text_frame.paragraphs[0]
     p4.text = "RESOURCE LEVEL REPORT"
     p4.font.name, p4.font.bold, p4.font.size, p4.font.color.rgb = "Arial", True, Pt(26), CORAL_TITLE
 
     # Fetch Target Headcount (Defaults to 23)
-    target_hc_row = conn.execute(
-        "SELECT setting_val FROM system_settings WHERE setting_key = 'target_headcount'").fetchone()
+    target_hc_row = conn.execute("SELECT setting_val FROM system_settings WHERE setting_key = 'target_headcount'").fetchone()
     target_headcount = int(target_hc_row[0]) if target_hc_row else 23
 
     # Rolling 5 Months ending at current report month
@@ -534,11 +492,10 @@ def generate_monthly_deck(conn, year, month):
             cy -= 1
     rolling_5.reverse()
 
-    # Query ALL staff in roster regardless of station active status or performance tracking
     all_staff_hc = conn.execute("""
-                                SELECT formal_name, display_name, joined_date, activation_date, resigned_date
-                                FROM engineers
-                                """).fetchall()
+        SELECT formal_name, display_name, joined_date, activation_date, resigned_date 
+        FROM engineers
+    """).fetchall()
 
     t_res_shape = slide4.shapes.add_table(6, 5, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.6))
     tbl_res = t_res_shape.table
@@ -557,10 +514,18 @@ def generate_monthly_deck(conn, year, month):
         ("Shortfall", RES_YELLOW),
         ("Remarks", RES_STEEL)
     ]
+    # Header Font Size: 14pt Bold
     for c_idx, (h_title, h_bg) in enumerate(res_headers):
-        format_cell_native(tbl_res.cell(0, c_idx), h_bg, h_title, font_size=13, bold=True,
-                           text_color=TEXT_BLACK if c_idx in [0, 3] else WHITE_TEXT)
+        format_cell_native(
+            tbl_res.cell(0, c_idx), 
+            h_bg, 
+            h_title, 
+            font_size=14, 
+            bold=True, 
+            text_color=TEXT_BLACK if c_idx in [0, 3] else WHITE_TEXT
+        )
 
+    # Content Rows Font Size: 12pt (Remarks indented by 0.14")
     for r_idx, (y_val, m_val) in enumerate(rolling_5, start=1):
         _, m_days = calendar.monthrange(y_val, m_val)
         m_start = date(y_val, m_val, 1)
@@ -576,21 +541,16 @@ def generate_monthly_deck(conn, year, month):
             act_d = parse_iso_date(stf["activation_date"])
             res_d = parse_iso_date(stf["resigned_date"])
 
-            # Start date is joined_date or activation_date (either is valid)
             start_d = j_d or act_d
-
-            # Count everyone who joined on or before this month and hasn't resigned yet
             has_started = (not start_d or start_d <= m_end)
             has_resigned = (res_d and res_d < m_start)
 
             if has_started and not has_resigned:
                 actual_hc += 1
 
-            # Log New Hires in their start month
             if start_d and m_start <= start_d <= m_end:
                 new_hires.append(name_disp)
 
-            # Log Resignees in their departure month
             if res_d and m_start <= res_d <= m_end:
                 resignees.append(name_disp)
 
@@ -601,16 +561,11 @@ def generate_monthly_deck(conn, year, month):
         res_str = ", ".join(resignees) if resignees else "-"
         remarks_text = f"New Hire : {nh_str}\nResignee : {res_str}"
 
-        format_cell_native(tbl_res.cell(r_idx, 0), RES_ROW_PINK, calendar.month_name[m_val], font_size=12, bold=True,
-                           text_color=TEXT_BLACK)
-        format_cell_native(tbl_res.cell(r_idx, 1), RES_ROW_BLUE, str(actual_hc), font_size=13, bold=True,
-                           text_color=TEXT_BLACK)
-        format_cell_native(tbl_res.cell(r_idx, 2), RES_ROW_GREEN, str(target_headcount), font_size=13, bold=True,
-                           text_color=TEXT_BLACK)
-        format_cell_native(tbl_res.cell(r_idx, 3), RES_ROW_YELLOW, shortfall_str, font_size=13, bold=True,
-                           text_color=TEXT_BLACK)
-        format_cell_native(tbl_res.cell(r_idx, 4), RES_ROW_STEEL, remarks_text, font_size=10.5, bold=False,
-                           text_color=TEXT_BLACK, align=PP_ALIGN.LEFT)
+        format_cell_native(tbl_res.cell(r_idx, 0), RES_ROW_PINK, calendar.month_name[m_val], font_size=12, bold=True, text_color=TEXT_BLACK)
+        format_cell_native(tbl_res.cell(r_idx, 1), RES_ROW_BLUE, str(actual_hc), font_size=12, bold=True, text_color=TEXT_BLACK)
+        format_cell_native(tbl_res.cell(r_idx, 2), RES_ROW_GREEN, str(target_headcount), font_size=12, bold=True, text_color=TEXT_BLACK)
+        format_cell_native(tbl_res.cell(r_idx, 3), RES_ROW_YELLOW, shortfall_str, font_size=12, bold=True, text_color=TEXT_BLACK)
+        format_cell_native(tbl_res.cell(r_idx, 4), RES_ROW_STEEL, remarks_text, font_size=12, bold=False, text_color=TEXT_BLACK, align=PP_ALIGN.LEFT, margin_left=0.14)
 
     # SLIDE 5: SECTION DIVIDER 2
     slide5 = prs.slides.add_slide(blank_layout)
@@ -636,7 +591,7 @@ def generate_monthly_deck(conn, year, month):
     # SLIDES 6 ONWARD: STATIONS
     for st in stations:
         st_id, st_name = st["id"], st["name"]
-
+        
         st_engineers = []
         for e in all_engineers:
             if not e["track_performance"]:
@@ -647,13 +602,10 @@ def generate_monthly_deck(conn, year, month):
             res_d = parse_iso_date(e["resigned_date"])
             u_count = user_cur_units_map.get(u, 0)
 
-            if not act_d or act_d > month_end:
-                continue
-            if res_d and res_d < month_start and u_count == 0:
-                continue
+            if not act_d or act_d > month_end: continue
+            if res_d and res_d < month_start and u_count == 0: continue
 
-            assigned_st_id, assigned_st_name, _, _ = resolve_engineer_station(conn, e["id"], e["station_id"], year,
-                                                                              month)
+            assigned_st_id, assigned_st_name, _, _ = resolve_engineer_station(conn, e["id"], e["station_id"], year, month)
             if assigned_st_name == st_name:
                 st_engineers.append(e)
 
@@ -672,7 +624,7 @@ def generate_monthly_deck(conn, year, month):
         sub_box = slide.shapes.add_textbox(Inches(0.4), Inches(0.95), Inches(12.5), Inches(0.35))
         tf_sub = sub_box.text_frame
         p_sub = tf_sub.paragraphs[0]
-
+        
         r_sh = p_sub.add_run()
         r_sh.text = f"{st_name}: "
         r_sh.font.name, r_sh.font.bold, r_sh.font.size, r_sh.font.color.rgb = "Arial", True, Pt(14), CORAL_TITLE
@@ -705,13 +657,13 @@ def generate_monthly_deck(conn, year, month):
 
             st_cur_days += (h_sum / shift) if shift > 0 else 0.0
             day_counts = e_cals["cal_day"].value_counts().to_dict() if not e_cals.empty else {}
-
+            
             raw_hours_list = [str(att_day_map.get(d, "-")) for d in range(1, num_days + 1)]
             raw_output_list = [day_counts.get(d, 0) for d in range(1, num_days + 1)]
 
             working_flags = [is_working_day_status(raw_hours_list[i]) for i in range(num_days)]
             adjusted_output = list(raw_output_list)
-
+            
             carry = 0
             for i in range(num_days):
                 if not working_flags[i]:
@@ -787,8 +739,7 @@ def generate_monthly_deck(conn, year, month):
             is_wknd = cur_d.weekday() >= 5
             is_ph = any(ae_daily_matrix[name]["hours"][d - 1] == "PH" for name in ae_contribution)
             h_color = PH_HEADER if is_ph else (ORANGE_HEADER if is_wknd else TEAL_HEADER)
-            format_cell_native(tbl.cell(0, d + 1), h_color, cur_d.strftime("%a")[:3].upper(), font_size=9, bold=True,
-                               text_color=TEXT_BLACK)
+            format_cell_native(tbl.cell(0, d + 1), h_color, cur_d.strftime("%a")[:3].upper(), font_size=9, bold=True, text_color=TEXT_BLACK)
 
         c_date_master = tbl.cell(1, 0)
         c_date_master.merge(tbl.cell(1, 1))
@@ -814,8 +765,7 @@ def generate_monthly_deck(conn, year, month):
             c_name_master = tbl.cell(curr_row, 0)
             c_name_master.merge(tbl.cell(curr_row + 1, 0))
             format_cell_native(c_name_master, w_bg, disp_name, font_size=8.5, bold=True, text_color=TEXT_BLACK)
-            format_cell_native(tbl.cell(curr_row, 1), w_bg, "Working Hrs", font_size=8, bold=True,
-                               text_color=TEXT_BLACK)
+            format_cell_native(tbl.cell(curr_row, 1), w_bg, "Working Hrs", font_size=8, bold=True, text_color=TEXT_BLACK)
 
             for d in range(1, num_days + 1):
                 cur_d = date(year, month, d)
@@ -828,8 +778,7 @@ def generate_monthly_deck(conn, year, month):
                 t_color = CODE_SPECIAL if val in ["ADV", "MC", "AL", "PL", "CP", "UPL"] else TEXT_BLACK
                 is_bld = (val in ["ADV", "MC", "AL", "PL", "CP", "UPL"])
 
-                format_cell_native(tbl.cell(curr_row, d + 1), cell_bg, disp_val, font_size=8, bold=is_bld,
-                                   text_color=t_color)
+                format_cell_native(tbl.cell(curr_row, d + 1), cell_bg, disp_val, font_size=8, bold=is_bld, text_color=t_color)
 
             format_cell_native(tbl.cell(curr_row + 1, 1), w_bg, "Output", font_size=8, bold=True, text_color=TEXT_BLACK)
 
@@ -849,8 +798,7 @@ def generate_monthly_deck(conn, year, month):
                     t_color = CODE_SPECIAL if out_val == 0 else TEXT_BLACK
                     is_bld = (out_val == 0)
 
-                format_cell_native(tbl.cell(curr_row + 1, d + 1), cell_bg, disp_val, font_size=8, bold=is_bld,
-                                   text_color=t_color)
+                format_cell_native(tbl.cell(curr_row + 1, d + 1), cell_bg, disp_val, font_size=8, bold=is_bld, text_color=t_color)
 
             curr_row += 2
 
@@ -866,17 +814,14 @@ def generate_monthly_deck(conn, year, month):
         for disp_name in ae_contribution:
             chart_data_bar.add_series(disp_name, ae_daily_matrix[disp_name]["output"])
 
-        ch1_x, ch1_y, ch1_w, ch1_h = c1_left + Inches(0.12), c1_top + Inches(0.12), c1_w - Inches(0.24), c1_h - Inches(
-            0.24)
-        bar_chart_shape = slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED, ch1_x, ch1_y, ch1_w, ch1_h,
-                                                 chart_data_bar)
+        ch1_x, ch1_y, ch1_w, ch1_h = c1_left + Inches(0.12), c1_top + Inches(0.12), c1_w - Inches(0.24), c1_h - Inches(0.24)
+        bar_chart_shape = slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED, ch1_x, ch1_y, ch1_w, ch1_h, chart_data_bar)
         bar_chart = bar_chart_shape.chart
 
         bar_chart.has_title = True
         bar_chart.chart_title.text_frame.text = f"DAILY OUTPUT OF {st_name.upper()} STATION"
         p_c1 = bar_chart.chart_title.text_frame.paragraphs[0]
-        p_c1.font.name, p_c1.font.size, p_c1.font.bold, p_c1.font.color.rgb = "Aptos", Pt(16), True, RGBColor(60, 60,
-                                                                                                              60)
+        p_c1.font.name, p_c1.font.size, p_c1.font.bold, p_c1.font.color.rgb = "Aptos", Pt(16), True, RGBColor(60, 60, 60)
 
         bar_chart.has_legend = True
         bar_chart.legend.position = XL_LEGEND_POSITION.TOP
@@ -908,8 +853,7 @@ def generate_monthly_deck(conn, year, month):
         chart_data_pie.categories = list(ae_contribution.keys())
         chart_data_pie.add_series("Contribution", [v if v > 0 else 0.001 for v in ae_contribution.values()])
 
-        ch2_x, ch2_y, ch2_w, ch2_h = c2_left + Inches(0.1), c2_top + Inches(0.08), c2_w - Inches(0.2), c2_h - Inches(
-            0.16)
+        ch2_x, ch2_y, ch2_w, ch2_h = c2_left + Inches(0.1), c2_top + Inches(0.08), c2_w - Inches(0.2), c2_h - Inches(0.16)
         pie_chart_shape = slide.shapes.add_chart(XL_CHART_TYPE.PIE, ch2_x, ch2_y, ch2_w, ch2_h, chart_data_pie)
         pie_chart = pie_chart_shape.chart
         pie_chart.style = 1
@@ -973,8 +917,7 @@ def generate_monthly_deck(conn, year, month):
         r6 = p_pi.add_run()
         r6.text = units_delta_str
         r6.font.name, r6.font.size = "Arial", Pt(10.5)
-        r6.font.color.rgb = GREEN_DELTA if "+" in units_delta_str else (
-            RED_DELTA if "-" in units_delta_str else TEXT_BLACK)
+        r6.font.color.rgb = GREEN_DELTA if "+" in units_delta_str else (RED_DELTA if "-" in units_delta_str else TEXT_BLACK)
 
     # DEPARTMENT SUMMARY SLIDE
     sum_slide = prs.slides.add_slide(blank_layout)
@@ -1017,57 +960,44 @@ def generate_monthly_deck(conn, year, month):
 
         for i, d in enumerate(summary_slide_data):
             c_idx = i + 1
-            format_cell_native(s_tbl.cell(0, c_idx), RUST_ORANGE, d["name"], font_size=12, bold=True,
-                               text_color=WHITE_TEXT)
-            format_cell_native(s_tbl.cell(1, c_idx), RGBColor(255, 255, 255), str(d["units"]), font_size=11, bold=False,
-                               text_color=TEXT_BLACK)
-            format_cell_native(s_tbl.cell(2, c_idx), RGBColor(255, 255, 255), f"{d['pi']:.1f}", font_size=11,
-                               bold=False, text_color=TEXT_BLACK)
+            format_cell_native(s_tbl.cell(0, c_idx), RUST_ORANGE, d["name"], font_size=12, bold=True, text_color=WHITE_TEXT)
+            format_cell_native(s_tbl.cell(1, c_idx), RGBColor(255, 255, 255), str(d["units"]), font_size=11, bold=False, text_color=TEXT_BLACK)
+            format_cell_native(s_tbl.cell(2, c_idx), RGBColor(255, 255, 255), f"{d['pi']:.1f}", font_size=11, bold=False, text_color=TEXT_BLACK)
 
-        format_cell_native(s_tbl.cell(0, s_cols - 1), RUST_ORANGE, "TOTAL", font_size=12, bold=True,
-                           text_color=WHITE_TEXT)
-
+        format_cell_native(s_tbl.cell(0, s_cols - 1), RUST_ORANGE, "TOTAL", font_size=12, bold=True, text_color=WHITE_TEXT)
+        
         c_out_tot = s_tbl.cell(1, s_cols - 1)
-        format_cell_native(c_out_tot, RGBColor(255, 255, 255), f"{tot_units_all} ", font_size=11, bold=True,
-                           text_color=TEXT_BLACK)
+        format_cell_native(c_out_tot, RGBColor(255, 255, 255), f"{tot_units_all} ", font_size=11, bold=True, text_color=TEXT_BLACK)
         r_del1 = c_out_tot.text_frame.paragraphs[0].add_run()
         r_del1.text = tot_units_delta_str
         r_del1.font.bold = True
-        r_del1.font.color.rgb = GREEN_DELTA if "+" in tot_units_delta_str else (
-            RED_DELTA if "-" in tot_units_delta_str else TEXT_BLACK)
+        r_del1.font.color.rgb = GREEN_DELTA if "+" in tot_units_delta_str else (RED_DELTA if "-" in tot_units_delta_str else TEXT_BLACK)
 
         c_pi_tot = s_tbl.cell(2, s_cols - 1)
-        format_cell_native(c_pi_tot, RGBColor(255, 255, 255), f"{tot_pi_sum:.1f} ", font_size=11, bold=True,
-                           text_color=TEXT_BLACK)
+        format_cell_native(c_pi_tot, RGBColor(255, 255, 255), f"{tot_pi_sum:.1f} ", font_size=11, bold=True, text_color=TEXT_BLACK)
         r_del2 = c_pi_tot.text_frame.paragraphs[0].add_run()
         r_del2.text = tot_pi_delta_str
         r_del2.font.bold = True
-        r_del2.font.color.rgb = GREEN_DELTA if "+" in tot_pi_delta_str else (
-            RED_DELTA if "-" in tot_pi_delta_str else TEXT_BLACK)
+        r_del2.font.color.rgb = GREEN_DELTA if "+" in tot_pi_delta_str else (RED_DELTA if "-" in tot_pi_delta_str else TEXT_BLACK)
 
-        format_cell_native(s_tbl.cell(1, 0), RGBColor(255, 255, 255), "OUTPUT", font_size=11, bold=True,
-                           text_color=TEXT_BLACK)
-        format_cell_native(s_tbl.cell(2, 0), RGBColor(255, 255, 255), "P.I.", font_size=11, bold=True,
-                           text_color=TEXT_BLACK)
+        format_cell_native(s_tbl.cell(1, 0), RGBColor(255, 255, 255), "OUTPUT", font_size=11, bold=True, text_color=TEXT_BLACK)
+        format_cell_native(s_tbl.cell(2, 0), RGBColor(255, 255, 255), "P.I.", font_size=11, bold=True, text_color=TEXT_BLACK)
 
         c_avg_left = s_tbl.cell(3, 0)
         if s_cols > 2:
             c_avg_left.merge(s_tbl.cell(3, s_cols - 2))
-        format_cell_native(c_avg_left, CREAM_BEIGE, "AVERAGE P.I. (Total P.I. divided by # of Stations)", font_size=11,
-                           bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.RIGHT)
+        format_cell_native(c_avg_left, CREAM_BEIGE, "AVERAGE P.I. (Total P.I. divided by # of Stations)", font_size=11, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.RIGHT)
 
         c_avg_val = s_tbl.cell(3, s_cols - 1)
-        format_cell_native(c_avg_val, CREAM_BEIGE, f"{dept_avg_pi:.1f} ", font_size=12, bold=True,
-                           text_color=TEXT_BLACK)
+        format_cell_native(c_avg_val, CREAM_BEIGE, f"{dept_avg_pi:.1f} ", font_size=12, bold=True, text_color=TEXT_BLACK)
         r_del3 = c_avg_val.text_frame.paragraphs[0].add_run()
         r_del3.text = avg_pi_delta_str
         r_del3.font.bold = True
-        r_del3.font.color.rgb = GREEN_DELTA if "+" in avg_pi_delta_str else (
-            RED_DELTA if "-" in avg_pi_delta_str else TEXT_BLACK)
+        r_del3.font.color.rgb = GREEN_DELTA if "+" in avg_pi_delta_str else (RED_DELTA if "-" in avg_pi_delta_str else TEXT_BLACK)
 
         ch_x, ch_y, ch_w, ch_h = Inches(3.28), Inches(2.94), Inches(6.74), Inches(3.97)
 
-        sum_card = sum_slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, ch_x, ch_y, ch_w, ch_h)
+        sum_card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, ch_x, ch_y, ch_w, ch_h)
         sum_card.fill.solid()
         sum_card.fill.fore_color.rgb = RGBColor(255, 255, 255)
         sum_card.line.color.rgb = RGBColor(210, 210, 210)
@@ -1082,8 +1012,8 @@ def generate_monthly_deck(conn, year, month):
         data_col.add_series("OUTPUT", st_units_vals)
 
         base_shape = sum_slide.shapes.add_chart(
-            XL_CHART_TYPE.COLUMN_CLUSTERED,
-            ch_x + Inches(0.12), ch_y + Inches(0.08), ch_w - Inches(0.24), ch_h - Inches(0.48),
+            XL_CHART_TYPE.COLUMN_CLUSTERED, 
+            ch_x + Inches(0.12), ch_y + Inches(0.08), ch_w - Inches(0.24), ch_h - Inches(0.48), 
             data_col
         )
         base_chart = base_shape.chart
@@ -1092,8 +1022,7 @@ def generate_monthly_deck(conn, year, month):
         base_chart.has_title = True
         base_chart.chart_title.text_frame.text = "OUTPUT & P.I."
         p_ct = base_chart.chart_title.text_frame.paragraphs[0]
-        p_ct.font.name, p_ct.font.size, p_ct.font.bold, p_ct.font.color.rgb = "Aptos", Pt(18), True, RGBColor(60, 60,
-                                                                                                              60)
+        p_ct.font.name, p_ct.font.size, p_ct.font.bold, p_ct.font.color.rgb = "Aptos", Pt(18), True, RGBColor(60, 60, 60)
         base_chart.has_legend = False
 
         val_ax1 = base_chart.value_axis
@@ -1114,8 +1043,8 @@ def generate_monthly_deck(conn, year, month):
         data_line.add_series("Min Target", min_target_vals)
 
         line_shape = sum_slide.shapes.add_chart(
-            XL_CHART_TYPE.LINE,
-            ch_x + Inches(0.12), ch_y + Inches(0.08), ch_w - Inches(0.24), ch_h - Inches(0.48),
+            XL_CHART_TYPE.LINE, 
+            ch_x + Inches(0.12), ch_y + Inches(0.08), ch_w - Inches(0.24), ch_h - Inches(0.48), 
             data_line
         )
         line_chart = line_shape.chart
@@ -1126,8 +1055,7 @@ def generate_monthly_deck(conn, year, month):
             chart_space = line_chart._element
             sp_pr = chart_space.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}spPr')
             if sp_pr is None:
-                sp_pr = parse_xml(
-                    '<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>')
+                sp_pr = parse_xml('<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>')
                 chart_space.insert(0, sp_pr)
             else:
                 sp_pr.append(parse_xml('<a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'))
@@ -1136,12 +1064,10 @@ def generate_monthly_deck(conn, year, month):
             if plot_area is not None:
                 pa_sp_pr = plot_area.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}spPr')
                 if pa_sp_pr is None:
-                    pa_sp_pr = parse_xml(
-                        '<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>')
+                    pa_sp_pr = parse_xml('<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>')
                     plot_area.insert(0, pa_sp_pr)
                 else:
-                    pa_sp_pr.append(
-                        parse_xml('<a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'))
+                    pa_sp_pr.append(parse_xml('<a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'))
         except Exception:
             pass
 
@@ -1154,15 +1080,14 @@ def generate_monthly_deck(conn, year, month):
             axPos_elem = val_ax2_elem.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}axPos')
             if axPos_elem is not None:
                 axPos_elem.set('val', 'r')
-
+            
             crosses_elem = val_ax2_elem.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}crosses')
             if crosses_elem is not None:
                 crosses_elem.set('val', 'max')
             else:
                 crossAx = val_ax2_elem.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}crossAx')
                 if crossAx is not None:
-                    new_crosses = parse_xml(
-                        '<c:crosses xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" val="max"/>')
+                    new_crosses = parse_xml('<c:crosses xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" val="max"/>')
                     crossAx.addprevious(new_crosses)
         except Exception:
             pass
@@ -1212,7 +1137,7 @@ def generate_monthly_deck(conn, year, month):
     p_dq.font.name, p_dq.font.bold, p_dq.font.size, p_dq.font.color.rgb = "Arial", True, Pt(48), WHITE_TEXT
     p_dq.alignment = PP_ALIGN.CENTER
 
-    # SLIDE N+3: EXECUTIVE KPI SCORECARD
+    # SLIDE N+3: EXECUTIVE KPI SCORECARD (SLIDE 14)
     add_kpi_scorecard_slide(prs, conn, year, month)
 
     # SLIDE N+4: QUALITY INDEX
@@ -1234,32 +1159,24 @@ def generate_monthly_deck(conn, year, month):
             cur_y -= 1
     rolling_months.reverse()
 
-    df_all_cals = pd.read_sql(
-        "SELECT cal_year, cal_month, COUNT(*) as units FROM calibrations GROUP BY cal_year, cal_month", conn)
-    cal_lookup = dict(zip(zip(df_all_cals["cal_year"], df_all_cals["cal_month"]),
-                          df_all_cals["units"])) if not df_all_cals.empty else {}
+    df_all_cals = pd.read_sql("SELECT cal_year, cal_month, COUNT(*) as units FROM calibrations GROUP BY cal_year, cal_month", conn)
+    cal_lookup = dict(zip(zip(df_all_cals["cal_year"], df_all_cals["cal_month"]), df_all_cals["units"])) if not df_all_cals.empty else {}
 
-    df_all_rejs = pd.read_sql(
-        "SELECT cal_by, reject_year, reject_month, failure_reason, COUNT(*) as cnt FROM rejection_logs GROUP BY cal_by, reject_year, reject_month, failure_reason",
-        conn)
+    df_all_rejs = pd.read_sql("SELECT cal_by, reject_year, reject_month, failure_reason, COUNT(*) as cnt FROM rejection_logs GROUP BY cal_by, reject_year, reject_month, failure_reason", conn)
     if not df_all_rejs.empty:
         df_all_rejs["clean_cal_by"] = df_all_rejs["cal_by"].astype(str).str.strip().str.lower()
-        df_all_rejs = df_all_rejs[
-            (~df_all_rejs["clean_cal_by"].isin(muted_users)) & (df_all_rejs["clean_cal_by"].isin(roster_users))]
+        df_all_rejs = df_all_rejs[(~df_all_rejs["clean_cal_by"].isin(muted_users)) & (df_all_rejs["clean_cal_by"].isin(roster_users))]
 
     month_labels = [f"{calendar.month_abbr[m_num]} '{str(y_num)[-2:]}" for y_num, m_num in rolling_months]
     acc_rates, coc_counts, mr_counts, others_counts = [], [], [], []
 
     for y_num, m_num in rolling_months:
         tot_c = cal_lookup.get((y_num, m_num), 0)
-        m_rejs = df_all_rejs[(df_all_rejs["reject_year"] == y_num) & (
-                df_all_rejs["reject_month"] == m_num)] if not df_all_rejs.empty else pd.DataFrame()
+        m_rejs = df_all_rejs[(df_all_rejs["reject_year"] == y_num) & (df_all_rejs["reject_month"] == m_num)] if not df_all_rejs.empty else pd.DataFrame()
         tot_err = m_rejs["cnt"].sum() if not m_rejs.empty else 0
 
-        coc_cnt = m_rejs[m_rejs["failure_reason"].str.lower().str.contains("coc")][
-            "cnt"].sum() if not m_rejs.empty else 0
-        mr_cnt = m_rejs[m_rejs["failure_reason"].str.lower().str.contains("measurement|report")][
-            "cnt"].sum() if not m_rejs.empty else 0
+        coc_cnt = m_rejs[m_rejs["failure_reason"].str.lower().str.contains("coc")]["cnt"].sum() if not m_rejs.empty else 0
+        mr_cnt = m_rejs[m_rejs["failure_reason"].str.lower().str.contains("measurement|report")]["cnt"].sum() if not m_rejs.empty else 0
         oth_cnt = tot_err - (coc_cnt + mr_cnt)
 
         coc_counts.append(int(coc_cnt))
@@ -1293,33 +1210,24 @@ def generate_monthly_deck(conn, year, month):
 
     c_ar0 = q_tbl.cell(1, 0)
     c_ar0.merge(q_tbl.cell(1, 1))
-    format_cell_native(c_ar0, RGBColor(230, 240, 250), "Acceptance Rate (%)", font_size=10, bold=True,
-                       text_color=TEXT_BLACK)
+    format_cell_native(c_ar0, RGBColor(230, 240, 250), "Acceptance Rate (%)", font_size=10, bold=True, text_color=TEXT_BLACK)
 
     for i, r_val in enumerate(acc_rates):
-        format_cell_native(q_tbl.cell(1, i + 2), RGBColor(230, 240, 250), f"{r_val:.1f}", font_size=9, bold=False,
-                           text_color=TEXT_BLACK)
+        format_cell_native(q_tbl.cell(1, i + 2), RGBColor(230, 240, 250), f"{r_val:.1f}", font_size=9, bold=False, text_color=TEXT_BLACK)
 
     c_mis = q_tbl.cell(2, 0)
     c_mis.merge(q_tbl.cell(4, 0))
     format_cell_native(c_mis, BLUE_HEADER, "MISTAKES", font_size=9, bold=True, text_color=WHITE_TEXT)
 
-    format_cell_native(q_tbl.cell(2, 1), RGBColor(255, 255, 255), "COC Issue", font_size=9, bold=True,
-                       text_color=TEXT_BLACK)
-    format_cell_native(q_tbl.cell(3, 1), RGBColor(255, 255, 255), "Measurement Report", font_size=9, bold=True,
-                       text_color=TEXT_BLACK)
-    format_cell_native(q_tbl.cell(4, 1), RGBColor(255, 255, 255), "Others", font_size=9, bold=True,
-                       text_color=TEXT_BLACK)
+    format_cell_native(q_tbl.cell(2, 1), RGBColor(255, 255, 255), "COC Issue", font_size=9, bold=True, text_color=TEXT_BLACK)
+    format_cell_native(q_tbl.cell(3, 1), RGBColor(255, 255, 255), "Measurement Report", font_size=9, bold=True, text_color=TEXT_BLACK)
+    format_cell_native(q_tbl.cell(4, 1), RGBColor(255, 255, 255), "Others", font_size=9, bold=True, text_color=TEXT_BLACK)
 
     for i in range(12):
         c_i = i + 2
-        format_cell_native(q_tbl.cell(2, c_i), RGBColor(255, 255, 255), str(coc_counts[i]) if coc_counts[i] > 0 else "",
-                           font_size=9, bold=False, text_color=TEXT_BLACK)
-        format_cell_native(q_tbl.cell(3, c_i), RGBColor(255, 255, 255), str(mr_counts[i]) if mr_counts[i] > 0 else "",
-                           font_size=9, bold=False, text_color=TEXT_BLACK)
-        format_cell_native(q_tbl.cell(4, c_i), RGBColor(255, 255, 255),
-                           str(others_counts[i]) if others_counts[i] > 0 else "", font_size=9, bold=False,
-                           text_color=TEXT_BLACK)
+        format_cell_native(q_tbl.cell(2, c_i), RGBColor(255, 255, 255), str(coc_counts[i]) if coc_counts[i] > 0 else "", font_size=9, bold=False, text_color=TEXT_BLACK)
+        format_cell_native(q_tbl.cell(3, c_i), RGBColor(255, 255, 255), str(mr_counts[i]) if mr_counts[i] > 0 else "", font_size=9, bold=False, text_color=TEXT_BLACK)
+        format_cell_native(q_tbl.cell(4, c_i), RGBColor(255, 255, 255), str(others_counts[i]) if others_counts[i] > 0 else "", font_size=9, bold=False, text_color=TEXT_BLACK)
 
     cq1_x, cq1_y, cq1_w, cq1_h = Inches(0.4), Inches(3.4), Inches(6.1), Inches(3.4)
     card_q1 = slide_q.shapes.add_shape(MSO_SHAPE.RECTANGLE, cq1_x, cq1_y, cq1_w, cq1_h)
@@ -1333,18 +1241,16 @@ def generate_monthly_deck(conn, year, month):
     chart_data_qline.add_series("Target", [98.0] * 12)
 
     ch_q1_shape = slide_q.shapes.add_chart(
-        XL_CHART_TYPE.LINE,
-        cq1_x + Inches(0.12), cq1_y + Inches(0.08), cq1_w - Inches(0.24), cq1_h - Inches(0.16),
+        XL_CHART_TYPE.LINE, 
+        cq1_x + Inches(0.12), cq1_y + Inches(0.08), cq1_w - Inches(0.24), cq1_h - Inches(0.16), 
         chart_data_qline
     )
     ch_q1 = ch_q1_shape.chart
-
+    
     ch_q1.has_title = True
     ch_q1.chart_title.text_frame.text = "QUALITY INDEX"
     p_q1_t = ch_q1.chart_title.text_frame.paragraphs[0]
-    p_q1_t.font.name, p_q1_t.font.size, p_q1_t.font.bold, p_q1_t.font.color.rgb = "Aptos", Pt(15), True, RGBColor(60,
-                                                                                                                  60,
-                                                                                                                  60)
+    p_q1_t.font.name, p_q1_t.font.size, p_q1_t.font.bold, p_q1_t.font.color.rgb = "Aptos", Pt(15), True, RGBColor(60, 60, 60)
 
     ch_q1.has_legend = True
     ch_q1.legend.position = XL_LEGEND_POSITION.TOP
@@ -1386,18 +1292,16 @@ def generate_monthly_deck(conn, year, month):
     chart_data_qbar.add_series("Others", others_counts)
 
     ch_q2_shape = slide_q.shapes.add_chart(
-        XL_CHART_TYPE.COLUMN_STACKED,
-        cq2_x + Inches(0.12), cq2_y + Inches(0.08), cq2_w - Inches(0.24), cq2_h - Inches(0.16),
+        XL_CHART_TYPE.COLUMN_STACKED, 
+        cq2_x + Inches(0.12), cq2_y + Inches(0.08), cq2_w - Inches(0.24), cq2_h - Inches(0.16), 
         chart_data_qbar
     )
     ch_q2 = ch_q2_shape.chart
-
+    
     ch_q2.has_title = True
     ch_q2.chart_title.text_frame.text = "TYPE OF MISTAKE"
     p_q2_t = ch_q2.chart_title.text_frame.paragraphs[0]
-    p_q2_t.font.name, p_q2_t.font.size, p_q2_t.font.bold, p_q2_t.font.color.rgb = "Aptos", Pt(15), True, RGBColor(60,
-                                                                                                                  60,
-                                                                                                                  60)
+    p_q2_t.font.name, p_q2_t.font.size, p_q2_t.font.bold, p_q2_t.font.color.rgb = "Aptos", Pt(15), True, RGBColor(60, 60, 60)
 
     ch_q2.has_legend = True
     ch_q2.legend.position = XL_LEGEND_POSITION.TOP
@@ -1425,8 +1329,7 @@ def generate_monthly_deck(conn, year, month):
     fn_box = slide_q.shapes.add_textbox(Inches(0.4), Inches(6.9), Inches(5.0), Inches(0.4))
     p_fn = fn_box.text_frame.paragraphs[0]
     p_fn.text = "Detail breakdown will be the next slide."
-    p_fn.font.name, p_fn.font.size, p_fn.font.italic, p_fn.font.color.rgb = "Arial", Pt(11), True, RGBColor(255, 235,
-                                                                                                            156)
+    p_fn.font.name, p_fn.font.size, p_fn.font.italic, p_fn.font.color.rgb = "Arial", Pt(11), True, RGBColor(255, 235, 156)
 
     # SLIDE N+5: DESCRIPTION OF OUTGOING ERRORS
     slide_err = prs.slides.add_slide(blank_layout)
@@ -1438,21 +1341,18 @@ def generate_monthly_deck(conn, year, month):
     p_errt.font.name, p_errt.font.bold, p_errt.font.size, p_errt.font.color.rgb = "Arial", True, Pt(24), CORAL_TITLE
 
     df_cur_rejs = pd.read_sql("""
-                              SELECT cal_by, model_id, serial_no, reject_date, failure_reason, remark
-                              FROM rejection_logs
-                              WHERE reject_year = ?
-                                AND reject_month = ?
-                              ORDER BY reject_date ASC
-                              """, conn, params=[year, month])
+        SELECT cal_by, model_id, serial_no, reject_date, failure_reason, remark
+        FROM rejection_logs
+        WHERE reject_year = ? AND reject_month = ?
+        ORDER BY reject_date ASC
+    """, conn, params=[year, month])
 
     if not df_cur_rejs.empty:
         df_cur_rejs["clean_cal_by"] = df_cur_rejs["cal_by"].astype(str).str.strip().str.lower()
-        df_cur_rejs = df_cur_rejs[
-            (~df_cur_rejs["clean_cal_by"].isin(muted_users)) & (df_cur_rejs["clean_cal_by"].isin(roster_users))]
+        df_cur_rejs = df_cur_rejs[(~df_cur_rejs["clean_cal_by"].isin(muted_users)) & (df_cur_rejs["clean_cal_by"].isin(roster_users))]
 
     err_rows = max(2, len(df_cur_rejs) + 1)
-    err_table_shape = slide_err.shapes.add_table(err_rows, 6, Inches(0.4), Inches(1.15), Inches(12.5),
-                                                 Inches(0.35 * err_rows))
+    err_table_shape = slide_err.shapes.add_table(err_rows, 6, Inches(0.4), Inches(1.15), Inches(12.5), Inches(0.35 * err_rows))
     err_tbl = err_table_shape.table
     set_native_table_grid_style(err_tbl)
 
@@ -1473,23 +1373,16 @@ def generate_monthly_deck(conn, year, month):
             raw_u = str(row["cal_by"]).strip().lower()
             ae_display = username_to_name.get(raw_u, str(row["cal_by"]))
 
-            format_cell_native(err_tbl.cell(curr_r, 0), RGBColor(255, 255, 255), ae_display, font_size=9, bold=True,
-                               text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 1), RGBColor(255, 255, 255), str(row["model_id"]), font_size=9,
-                               text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 2), RGBColor(255, 255, 255), str(row["serial_no"]), font_size=9,
-                               text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 3), RGBColor(255, 255, 255), str(row["reject_date"]), font_size=9,
-                               text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 4), RGBColor(255, 255, 255), str(row["failure_reason"]),
-                               font_size=9, text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 5), RGBColor(255, 255, 255), str(row["remark"]), font_size=9,
-                               text_color=TEXT_BLACK, align=PP_ALIGN.LEFT)
+            format_cell_native(err_tbl.cell(curr_r, 0), RGBColor(255, 255, 255), ae_display, font_size=9, bold=True, text_color=TEXT_BLACK)
+            format_cell_native(err_tbl.cell(curr_r, 1), RGBColor(255, 255, 255), str(row["model_id"]), font_size=9, text_color=TEXT_BLACK)
+            format_cell_native(err_tbl.cell(curr_r, 2), RGBColor(255, 255, 255), str(row["serial_no"]), font_size=9, text_color=TEXT_BLACK)
+            format_cell_native(err_tbl.cell(curr_r, 3), RGBColor(255, 255, 255), str(row["reject_date"]), font_size=9, text_color=TEXT_BLACK)
+            format_cell_native(err_tbl.cell(curr_r, 4), RGBColor(255, 255, 255), str(row["failure_reason"]), font_size=9, text_color=TEXT_BLACK)
+            format_cell_native(err_tbl.cell(curr_r, 5), RGBColor(255, 255, 255), str(row["remark"]), font_size=9, text_color=TEXT_BLACK, align=PP_ALIGN.LEFT, margin_left=0.14)
     else:
         c_no_err = err_tbl.cell(1, 0)
         c_no_err.merge(err_tbl.cell(1, 5))
-        format_cell_native(c_no_err, RGBColor(255, 255, 255), "No outgoing inspection errors recorded for this period.",
-                           font_size=11, bold=True, text_color=GREEN_DELTA)
+        format_cell_native(c_no_err, RGBColor(255, 255, 255), "No outgoing inspection errors recorded for this period.", font_size=11, bold=True, text_color=GREEN_DELTA)
 
     output_stream = io.BytesIO()
     prs.save(output_stream)
