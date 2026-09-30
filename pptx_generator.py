@@ -93,9 +93,27 @@ def normalize_str(s):
     return re.sub(r'\s+', ' ', str(s).strip().replace('"', '')).lower()
 
 
+def get_image_path(filename):
+    """Finds image file using absolute directory and case-insensitive matching on Linux."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    exact_path = os.path.join(base_dir, filename)
+    if os.path.exists(exact_path):
+        return exact_path
+
+    # Case-insensitive fallback for Linux
+    try:
+        for f in os.listdir(base_dir):
+            if f.lower() == filename.lower():
+                return os.path.join(base_dir, f)
+    except Exception:
+        pass
+    return None
+
+
 def set_slide_background(slide, prs, image_filename, fallback_rgb):
-    if os.path.exists(image_filename):
-        slide.shapes.add_picture(image_filename, 0, 0, prs.slide_width, prs.slide_height)
+    resolved_path = get_image_path(image_filename)
+    if resolved_path and os.path.exists(resolved_path):
+        slide.shapes.add_picture(resolved_path, 0, 0, prs.slide_width, prs.slide_height)
     else:
         bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
         bg.fill.solid()
