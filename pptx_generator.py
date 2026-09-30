@@ -40,11 +40,11 @@ KPI_GREEN = RGBColor(0, 176, 80)            # Pass Green #00B050
 KPI_RED = RGBColor(231, 76, 60)             # Fail Red #E74C3C
 
 # Resource Level Report Palette (Slide 4)
-RES_PINK = RGBColor(255, 107, 129)          # Month Header
-RES_BLUE = RGBColor(0, 123, 255)            # Actual Headcount Header
-RES_GREEN = RGBColor(0, 176, 80)            # Target Header
-RES_YELLOW = RGBColor(255, 193, 7)          # Shortfall Header
-RES_STEEL = RGBColor(122, 165, 210)         # Remarks Header
+RES_PINK = RGBColor(255, 107, 129)
+RES_BLUE = RGBColor(0, 123, 255)
+RES_GREEN = RGBColor(0, 176, 80)
+RES_YELLOW = RGBColor(255, 193, 7)
+RES_STEEL = RGBColor(122, 165, 210)
 RES_ROW_PINK = RGBColor(245, 220, 225)
 RES_ROW_BLUE = RGBColor(190, 218, 245)
 RES_ROW_GREEN = RGBColor(168, 216, 168)
@@ -52,14 +52,14 @@ RES_ROW_YELLOW = RGBColor(255, 230, 153)
 RES_ROW_STEEL = RGBColor(220, 234, 250)
 
 # Odd Person (Rows 1 & 2)
-ODD_WEEKDAY = RGBColor(255, 255, 255)       # #FFFFFF
-ODD_WEEKEND = RGBColor(255, 225, 210)       # #FFE1D2
-ODD_PH = RGBColor(255, 239, 201)            # #FFEFC9
+ODD_WEEKDAY = RGBColor(255, 255, 255)
+ODD_WEEKEND = RGBColor(255, 225, 210)
+ODD_PH = RGBColor(255, 239, 201)
 
 # Even Person (Rows 3 & 4)
-EVEN_WEEKDAY = RGBColor(193, 224, 228)      # #C1E0E4
-EVEN_WEEKEND = RGBColor(255, 194, 166)      # #FFC2A6
-EVEN_PH = RGBColor(255, 223, 148)           # #FFDF94
+EVEN_WEEKDAY = RGBColor(193, 224, 228)
+EVEN_WEEKEND = RGBColor(255, 194, 166)
+EVEN_PH = RGBColor(255, 223, 148)
 
 CODE_SPECIAL = RGBColor(255, 89, 118)
 TEXT_BLACK = RGBColor(0, 0, 0)
@@ -73,11 +73,11 @@ GREEN_DELTA = RGBColor(46, 204, 113)
 RED_DELTA = RGBColor(231, 76, 60)
 
 CHART_SERIES_COLORS = [
-    RGBColor(255, 192, 0),   # Gold
-    RGBColor(55, 96, 146),   # Steel Blue
-    RGBColor(0, 176, 80),    # Green
-    RGBColor(155, 89, 182),  # Purple
-    RGBColor(230, 126, 34)   # Orange
+    RGBColor(255, 192, 0),
+    RGBColor(55, 96, 146),
+    RGBColor(0, 176, 80),
+    RGBColor(155, 89, 182),
+    RGBColor(230, 126, 34)
 ]
 
 OUTPUT_PURPLE = RGBColor(91, 52, 138)
@@ -215,13 +215,10 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
     for _ in range(3):
         rolling_3.append((cy, cm))
         cm -= 1
-        if cm == 0:
-            cm = 12
-            cy -= 1
+        if cm == 0: cm, cy = 12, cy - 1
     rolling_3.reverse()
 
     month_cols = [f"{calendar.month_abbr[m_num]}'{str(y_num)[-2:]}" for y_num, m_num in rolling_3]
-
     kpi_rows = conn.execute("SELECT kpi_key, kpi_name, target_label, target_value, unit FROM kpi_configs ORDER BY rowid").fetchall()
     kpi_map = {r["kpi_key"]: r for r in kpi_rows}
     target_header_label = kpi_rows[0]["target_label"] if kpi_rows else "Q2 FY'26 Target"
@@ -233,8 +230,7 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
 
     for (y_num, m_num), m_lbl in zip(rolling_3, month_cols):
         _, m_days = calendar.monthrange(y_num, m_num)
-        m_start = date(y_num, m_num, 1)
-        m_end = date(y_num, m_num, m_days)
+        m_start, m_end = date(y_num, m_num, 1), date(y_num, m_num, m_days)
 
         active_ae_usernames = []
         ae_shift_map = {}
@@ -242,12 +238,8 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
 
         for e in all_engineers:
             u_clean = str(e["username"]).strip().lower()
-            if u_clean in muted_users:
-                continue
-
-            act_d = parse_iso_date(e["activation_date"])
-            res_d = parse_iso_date(e["resigned_date"])
-
+            if u_clean in muted_users: continue
+            act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
             if not act_d or act_d > m_end: continue
             if res_d and res_d < m_start: continue
 
@@ -260,12 +252,7 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
 
         if active_ae_usernames:
             placeholders = ",".join(["?"] * len(active_ae_usernames))
-            q_cals = f"""
-                SELECT cal_by, category, mos, sender_dept 
-                FROM calibrations 
-                WHERE cal_year = ? AND cal_month = ? 
-                  AND cal_by IN ({placeholders})
-            """
+            q_cals = f"SELECT cal_by, category, mos, sender_dept FROM calibrations WHERE cal_year = ? AND cal_month = ? AND cal_by IN ({placeholders})"
             df_c = pd.read_sql(q_cals, conn, params=[y_num, m_num] + active_ae_usernames)
         else:
             df_c = pd.DataFrame()
@@ -281,9 +268,7 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
         if not df_c.empty:
             df_new = df_c[df_c["category"].astype(str).str.strip().str.upper() == "CRD_NEW"]
             mask_krs = df_new["sender_dept"].astype(str).str.upper().str.contains(r"AX63/RSD|AX63/RSD/AC", regex=True)
-            df_trade = df_new[~mask_krs]
-            df_krs = df_new[mask_krs]
-
+            df_trade, df_krs = df_new[~mask_krs], df_new[mask_krs]
             actual_data[m_lbl]["trade_unit"] = round(((df_trade["mos"] == 1).sum() / len(df_trade)) * 100.0) if len(df_trade) > 0 else 92.0
             actual_data[m_lbl]["krs_unit"] = round(((df_krs["mos"] == 1).sum() / len(df_krs)) * 100.0) if len(df_krs) > 0 else 97.0
         else:
@@ -298,37 +283,27 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
 
         total_units = len(df_c)
         df_att_month = pd.read_sql("SELECT formal_name, capped_hours, year, month FROM attendance WHERE year = ? AND month = ?", conn, params=[y_num, m_num])
-        
         eff_days_sum = 0.0
         if not df_att_month.empty:
             for _, att_row in df_att_month.iterrows():
                 f_norm = normalize_str(att_row["formal_name"])
                 if f_norm in ae_name_norm_map:
-                    s_hours = ae_name_norm_map[f_norm]
-                    eff_days_sum += (float(att_row["capped_hours"]) / s_hours)
+                    eff_days_sum += (float(att_row["capped_hours"]) / ae_name_norm_map[f_norm])
 
         actual_data[m_lbl]["pi"] = round(total_units / eff_days_sum, 1) if eff_days_sum > 0 else 3.2
 
     t_shape = slide.shapes.add_table(8, 5, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.6))
     tbl = t_shape.table
     set_native_table_grid_style(tbl)
+    tbl.columns[0].width, tbl.columns[1].width, tbl.columns[2].width, tbl.columns[3].width, tbl.columns[4].width = Inches(3.7), Inches(2.4), Inches(2.13), Inches(2.13), Inches(2.14)
 
-    tbl.columns[0].width = Inches(3.7)
-    tbl.columns[1].width = Inches(2.4)
-    tbl.columns[2].width = Inches(2.13)
-    tbl.columns[3].width = Inches(2.13)
-    tbl.columns[4].width = Inches(2.14)
-
-    c_m = tbl.cell(0, 0)
-    c_m.merge(tbl.cell(1, 0))
+    c_m = tbl.cell(0, 0); c_m.merge(tbl.cell(1, 0))
     format_cell_native(c_m, PURPLE_HEADER, "Metrics", font_size=14, bold=True, text_color=WHITE_TEXT)
 
-    c_tgt = tbl.cell(0, 1)
-    c_tgt.merge(tbl.cell(1, 1))
+    c_tgt = tbl.cell(0, 1); c_tgt.merge(tbl.cell(1, 1))
     format_cell_native(c_tgt, PURPLE_HEADER, target_header_label, font_size=14, bold=True, text_color=WHITE_TEXT)
 
-    c_act = tbl.cell(0, 2)
-    c_act.merge(tbl.cell(0, 4))
+    c_act = tbl.cell(0, 2); c_act.merge(tbl.cell(0, 4))
     format_cell_native(c_act, PURPLE_HEADER, "ACTUAL (Last 3 months)", font_size=14, bold=True, text_color=WHITE_TEXT)
 
     for i, lbl in enumerate(month_cols):
@@ -353,7 +328,7 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
 
 
 # =============================================================================
-# GENERATE MONTHLY PRESENTATION DECK
+# GENERATE MONTHLY PRESENTATION DECK (DASHBOARD EXPORT)
 # =============================================================================
 def generate_monthly_deck(conn, year, month):
     prs = Presentation()
@@ -423,8 +398,7 @@ def generate_monthly_deck(conn, year, month):
     # SLIDE 3: DIVIDER 1
     slide3 = prs.slides.add_slide(blank_layout)
     set_slide_background(slide3, prs, "Black.png", PURE_BLACK)
-    t_box3 = slide3.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(11.33), Inches(1.5))
-    p3 = t_box3.text_frame.paragraphs[0]
+    p3 = slide3.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(11.33), Inches(1.5)).text_frame.paragraphs[0]
     p3.text = "Resource Level Report"
     p3.font.name, p3.font.bold, p3.font.size, p3.font.color.rgb = "Arial", True, Pt(48), WHITE_TEXT
     p3.alignment = PP_ALIGN.CENTER
@@ -433,8 +407,7 @@ def generate_monthly_deck(conn, year, month):
     slide4 = prs.slides.add_slide(blank_layout)
     set_slide_background(slide4, prs, "Grey Wave.png", BG_COLOR)
 
-    t_box4 = slide4.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65))
-    p4 = t_box4.text_frame.paragraphs[0]
+    p4 = slide4.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65)).text_frame.paragraphs[0]
     p4.text = "RESOURCE LEVEL REPORT"
     p4.font.name, p4.font.bold, p4.font.size, p4.font.color.rgb = "Arial", True, Pt(26), CORAL_TITLE
 
@@ -511,8 +484,8 @@ def generate_monthly_deck(conn, year, month):
             u, act_d, res_d, u_count = e["username"], parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"]), user_cur_units_map.get(e["username"], 0)
             if not act_d or act_d > month_end: continue
             if res_d and res_d < month_start and u_count == 0: continue
-            assigned_st_id, assigned_st_name, _, _, _ = resolve_engineer_station(conn, e["id"], e["station_id"], year, month)
-            if assigned_st_name == st_name: st_engineers.append(e)
+            assigned_st_id, assigned_st_name, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], year, month)
+            if st_active and assigned_st_name == st_name: st_engineers.append(e)
 
         if not st_engineers: continue
 
@@ -710,7 +683,6 @@ def generate_monthly_deck(conn, year, month):
         format_cell_native(c_avg_left, CREAM_BEIGE, "AVERAGE P.I. (Total P.I. divided by # of Stations)", font_size=11, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.RIGHT)
         format_cell_native(s_tbl.cell(3, s_cols - 1), CREAM_BEIGE, f"{dept_avg_pi:.1f} {format_delta(dept_avg_pi, prev_dept_avg_pi, True)}", font_size=12, bold=True, text_color=TEXT_BLACK)
 
-        # Output & P.I. Combo Chart with Transparent Overlay
         ch_x, ch_y, ch_w, ch_h = Inches(3.28), Inches(2.94), Inches(6.74), Inches(3.97)
         sum_card = sum_slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, ch_x, ch_y, ch_w, ch_h)
         sum_card.fill.solid(); sum_card.fill.fore_color.rgb, sum_card.line.color.rgb = RGBColor(255, 255, 255), RGBColor(210, 210, 210)
@@ -733,7 +705,6 @@ def generate_monthly_deck(conn, year, month):
         line_chart = sum_slide.shapes.add_chart(XL_CHART_TYPE.LINE, ch_x + Inches(0.12), ch_y + Inches(0.08), ch_w - Inches(0.24), ch_h - Inches(0.48), data_line).chart
         line_chart.has_title = False; line_chart.has_legend = False
 
-        # Make overlay transparent
         try:
             sp_pr = line_chart._element.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}spPr')
             if sp_pr is None: line_chart._element.insert(0, parse_xml('<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>'))
@@ -758,7 +729,6 @@ def generate_monthly_deck(conn, year, month):
         s_pi = line_chart.series[0]; s_pi.format.line.color.rgb, s_pi.format.line.width, s_pi.format.line.dash_style = GOLD_PI, Pt(1.5), MSO_LINE.DASH_DOT
         s_tgt = line_chart.series[1]; s_tgt.format.line.color.rgb, s_tgt.format.line.width, s_tgt.format.line.dash_style = BLACK_TARGET, Pt(1.5), MSO_LINE.DASH
 
-        # Legend
         leg_box = sum_slide.shapes.add_textbox(ch_x, ch_y + ch_h - Inches(0.38), ch_w, Inches(0.35))
         p_leg = leg_box.text_frame.paragraphs[0]; p_leg.alignment = PP_ALIGN.CENTER
         r_l1 = p_leg.add_run(); r_l1.text = "■ OUTPUT       "; r_l1.font.bold, r_l1.font.size, r_l1.font.color.rgb = True, Pt(8), OUTPUT_PURPLE
@@ -1070,7 +1040,8 @@ def generate_quarterly_deck(conn, selected_quarter):
     for s_idx, s in enumerate(ch1.series):
         s.format.fill.solid(); s.format.fill.fore_color.rgb = blue_palette[s_idx % len(blue_palette)]
         s.has_data_labels = True
-        s.data_labels.font.name, s.data_labels.font.size = "Aptos", Pt(7.5)
+        s.data_labels.font.name = "Aptos"
+        s.data_labels.font.size = Pt(7.5)
 
     ch1.has_legend = True; ch1.legend.position, ch1.legend.font.name, ch1.legend.font.size = XL_LEGEND_POSITION.BOTTOM, "Aptos", Pt(8)
 
@@ -1122,7 +1093,8 @@ def generate_quarterly_deck(conn, selected_quarter):
     for s_idx, s in enumerate(ch_out.series):
         s.format.fill.solid(); s.format.fill.fore_color.rgb = teal_palette[s_idx % len(teal_palette)]
         s.has_data_labels = True
-        s.data_labels.font.name, s.data_labels.font.size = "Aptos", Pt(7)
+        s.data_labels.font.name = "Aptos"
+        s.data_labels.font.size = Pt(7)
 
     ch_out.has_legend = True; ch_out.legend.position, ch_out.legend.font.name, ch_out.legend.font.size = XL_LEGEND_POSITION.BOTTOM, "Aptos", Pt(7.5)
 
@@ -1159,13 +1131,15 @@ def generate_quarterly_deck(conn, selected_quarter):
 
     ch_tat = slide2.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, c_tat_x + Inches(0.1), c_tat_y + Inches(0.08), c_tat_w - Inches(0.2), c_tat_h - Inches(0.45), data_tat).chart
     ch_tat.has_title = True; ch_tat.chart_title.text_frame.text = f"TURNAROUND TIME OF {q_key}"
-    ch_tat.chart_title.text_frame.paragraphs[0].font.name, ch_tat.chart_title.text_frame.paragraphs[0].font.size, ch_tat.chart_title.text_frame.paragraphs[0].font.bold = "Aptos", Pt(14), True
+    p_tt = ch_tat.chart_title.text_frame.paragraphs[0]
+    p_tt.font.name, p_tt.font.bold, p_tt.font.size, p_tt.font.color.rgb = "Aptos", True, Pt(14), RGBColor(60, 60, 60)
 
     green_palette = [RGBColor(152, 228, 176), RGBColor(0, 176, 80), RGBColor(0, 104, 55)]
     for s_idx, s in enumerate(ch_tat.series):
         s.format.fill.solid(); s.format.fill.fore_color.rgb = green_palette[s_idx % len(green_palette)]
         s.has_data_labels = True
-        s.data_labels.font.name, s.data_labels.font.size = "Aptos", Pt(7)
+        s.data_labels.font.name = "Aptos"
+        s.data_labels.font.size = Pt(7)
 
     ch_tat.has_legend = True; ch_tat.legend.position, ch_tat.legend.font.name, ch_tat.legend.font.size = XL_LEGEND_POSITION.BOTTOM, "Aptos", Pt(7.5)
 
