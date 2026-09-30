@@ -1388,3 +1388,336 @@ def generate_monthly_deck(conn, year, month):
     prs.save(output_stream)
     output_stream.seek(0)
     return output_stream
+
+# =============================================================================
+# GENERATE QUARTERLY PRESENTATION DECK (2 SLIDES)
+# =============================================================================
+def generate_quarterly_deck(conn, selected_quarter):
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6]
+
+    # 1. Determine Fiscal Quarter & Months
+    periods_db = conn.execute("SELECT DISTINCT cal_year as yr, cal_month as mo FROM calibrations WHERE cal_year IS NOT NULL AND cal_month IS NOT NULL ORDER BY yr ASC, mo ASC").fetchall()
+    fiscal_quarters_map = {}
+    for r in periods_db:
+        cal_y, m = int(r["yr"]), int(r["mo"])
+        q_label, fiscal_yr, _ = get_keysight_fiscal_info(cal_y, m)
+        q_key = f"{q_label} FY'{str(fiscal_yr)[-2:]}"
+        if q_key not in fiscal_quarters_map: fiscal_quarters_map[q_key] = []
+        fiscal_quarters_map[q_key].append((cal_y, m))
+
+    if not fiscal_quarters_map:
+        return io.BytesIO()
+
+    q_key = selected_quarter if selected_quarter in fiscal_quarters_map else list(fiscal_quarters_map.keys())[-1]
+    quarter_months = fiscal_quarters_map[q_key]
+
+    month_names = [calendar.month_abbr[m].upper() for (_, m) in quarter_months]
+
+    # 2. Target Groups & Supporting Stations from Team Settings
+    target_groups = [
+        "CSG",
+        "EiSG+Scope",
+        "Legacy+Modular+PMPS(A)+MMA+Others",
+        "STD LAB"
+    ]
+
+    all_engineers = conn.execute("""
+        SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.activation_date, e.resigned_date, s.name as station_name, s.group_name 
+        FROM engineers e LEFT JOIN stations s ON e.station_id = s.id 
+        WHERE (e.track_performance = 1 OR e.track_performance IS NULL)
+    """).fetchall()
+
+    muted_rows = conn.execute("SELECT username FROM ignored_technicians").fetchall()
+    muted_users = set([m["username"].strip().lower() for m in muted_rows])
+
+    # Fetch Calibrations, Attendance, Rejections for the 3 months
+    df_cals_q = pd.DataFrame()
+    for (cy, cm) in quarter_months:
+        df_m = pd.read_sql("SELECT service_id, model_id, serial_no, cal_date, cal_day, cal_month, cal_year, cal_by, category, mos FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[cy, cm])
+        if not df_m.empty: df_cals_q = pd.concat([df_cals_q, df_m], ignore_index=True)
+
+    if not df_cals_q.empty:
+        df_cals_q["clean_by"] = df_cals_q["cal_by"].astype(str).str.strip().str.lower()
+        df_cals_q = df_cals_q[~df_cals_q["clean_by"].isin(muted_users)]
+
+    df_att_q = pd.DataFrame()
+    for (cy, cm) in quarter_months:
+        df_m = pd.read_sql("SELECT formal_name, capped_hours, year, month FROM attendance WHERE year = ? AND month = ?", conn, params=[cy, cm])
+        if not df_m.empty: df_att_q = pd.concat([df_att_q, df_m], ignore_index=True)
+    if not df_att_q.empty:
+        df_att_q["clean_name"] = df_att_q["formal_name"].apply(normalize_str)
+
+    # 3. Monthly Metrics by Group
+    group_stats = {}
+    for grp in target_groups:
+        st_query_val = "STDS LAB" if grp == "STD LAB" else ("Legacy+Modular+PMPS (A)+MMA+ Others" if "LEGACY" in grp.upper() else grp)
+        st_rows = conn.execute("SELECT id, name FROM stations WHERE is_active = 1 AND (group_name = ? OR (group_name LIKE '%STD%' AND ? = 'STD LAB'))", (st_query_val, grp)).fetchall()
+        st_ids = [s["id"] for s in st_rows]
+
+        m_vols, m_days, m_pis, m_tats = [], [], [], []
+
+        for (cy, cm) in quarter_months:
+            _, num_d = calendar.monthrange(cy, cm)
+            m_start, m_end = date(cy, cm, 1), date(cy, cm, num_d)
+            aes_in_st = set()
+            month_days = 0.0
+
+            for e in all_engineers:
+                act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
+                if act_d and act_d > m_end: continue
+                if res_d and res_d < m_start: continue
+                st_id, _, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], cy, cm)
+                if not st_active: continue
+
+                if st_id in st_ids:
+                    u_clean = e["username"].strip().lower()
+                    aes_in_st.add(u_clean)
+                    fn_norm = normalize_str(e["formal_name"])
+                    shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
+                    hrs = df_att_q[(df_att_q["clean_name"] == fn_norm) & (df_att_q["year"] == cy) & (df_att_q["month"] == cm)]["capped_hours"].sum() if not df_att_q.empty else 0.0
+                    month_days += (hrs / shift)
+
+            # Calibrations
+            m_cals = df_cals_q[(df_cals_q["cal_year"] == cy) & (df_cals_q["cal_month"] == cm) & (df_cals_q["clean_by"].isin(aes_in_st))] if not df_cals_q.empty and aes_in_st else pd.DataFrame()
+            u_cnt = len(m_cals)
+            pi_val = round(u_cnt / month_days, 1) if month_days > 0 else 0.0
+
+            # Weighted TAT (15/35/35/15)
+            w_num, a_w = 0.0, 0.0
+            for cat in TAT_CATEGORIES:
+                k_key, weight = cat["key"], cat["weight"]
+                c_sub = m_cals[m_cals["category"].str.strip().str.upper() == k_key.upper()] if not m_cals.empty else pd.DataFrame()
+                if len(c_sub) > 0:
+                    pct = int(round(((c_sub["mos"] == 1).sum() / len(c_sub)) * 100.0))
+                    w_num += pct * (weight / 100.0)
+                    a_w += (weight / 100.0)
+            tat_val = int(round(w_num / a_w)) if a_w > 0 else 100
+
+            m_vols.append(u_cnt)
+            m_days.append(month_days)
+            m_pis.append(pi_val)
+            m_tats.append(tat_val)
+
+        tot_vol = sum(m_vols)
+        tot_days = sum(m_days)
+        quarter_pi = round(tot_vol / tot_days, 1) if tot_days > 0 else 0.0
+        avg_mo_vol = int(round(tot_vol / 3.0))
+
+        # Overall Quarter Weighted TAT
+        grp_all_cals = df_cals_q[(df_cals_q["cal_year"].isin([cy for cy, _ in quarter_months])) & (df_cals_q["cal_month"].isin([cm for _, cm in quarter_months]))]
+        q_w_num, q_a_w = 0.0, 0.0
+        for cat in TAT_CATEGORIES:
+            k_key, weight = cat["key"], cat["weight"]
+            c_sub = grp_all_cals[grp_all_cals["category"].str.strip().str.upper() == k_key.upper()] if not grp_all_cals.empty else pd.DataFrame()
+            if len(c_sub) > 0:
+                pct = int(round(((c_sub["mos"] == 1).sum() / len(c_sub)) * 100.0))
+                q_w_num += pct * (weight / 100.0)
+                q_a_w += (weight / 100.0)
+        quarter_tat = int(round(q_w_num / q_a_w)) if q_a_w > 0 else 100
+
+        group_stats[grp] = {
+            "m_vols": m_vols, "tot_vol": tot_vol, "avg_mo_vol": avg_mo_vol,
+            "m_pis": m_pis, "quarter_pi": quarter_pi,
+            "m_tats": m_tats, "quarter_tat": quarter_tat
+        }
+
+    # =========================================================================
+    # SLIDE 1: PRODUCTIVITY INDEX OF <QUARTER>
+    # =========================================================================
+    slide1 = prs.slides.add_slide(blank_layout)
+    set_slide_background(slide1, prs, "Grey Wave.png", BG_COLOR)
+
+    t_box1 = slide1.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65))
+    p1 = t_box1.text_frame.paragraphs[0]
+    p1.text = f"PRODUCTIVITY INDEX {q_key}"
+    p1.font.name, p1.font.bold, p1.font.size, p1.font.color.rgb = "Arial", True, Pt(26), CORAL_TITLE
+
+    # Top Chart: Clustered Columns (3 Months in Blue Shades) + Average Line
+    c1_x, c1_y, c1_w, c1_h = Inches(2.2), Inches(1.15), Inches(8.9), Inches(3.8)
+    card1 = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, c1_x, c1_y, c1_w, c1_h)
+    card1.fill.solid()
+    card1.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    card1.line.color.rgb = RGBColor(210, 210, 210)
+
+    # Base Column Chart: 3 Months of P.I.
+    data_c1 = CategoryChartData()
+    data_c1.categories = target_groups
+    for m_i, m_name in enumerate(month_names):
+        data_c1.add_series(m_name, [group_stats[g]["m_pis"][m_i] for g in target_groups])
+
+    ch_shape1 = slide1.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, c1_x + Inches(0.12), c1_y + Inches(0.08), c1_w - Inches(0.24), c1_h - Inches(0.48), data_c1)
+    ch1 = ch_shape1.chart
+    ch1.has_title = True
+    ch1.chart_title.text_frame.text = f"PRODUCTIVITY INDEX OF {q_key}"
+    p_t1 = ch1.chart_title.text_frame.paragraphs[0]
+    p_t1.font.name, p_t1.font.bold, p_t1.font.size, p_t1.font.color.rgb = "Aptos", True, Pt(16), RGBColor(60, 60, 60)
+
+    # Color the 3 Month Bars (Light Blue -> Mid Blue -> Dark Navy)
+    blue_palette = [RGBColor(160, 200, 240), RGBColor(46, 117, 182), RGBColor(24, 43, 73)]
+    for s_idx, s in enumerate(ch1.series):
+        s.format.fill.solid()
+        s.format.fill.fore_color.rgb = blue_palette[s_idx % len(blue_palette)]
+        s.has_data_labels = True
+        for dl in s.data_labels:
+            dl.font.name, dl.font.size, dl.font.bold = "Aptos", Pt(7.5), True
+
+    ch1.has_legend = True
+    ch1.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch1.legend.font.name, ch1.legend.font.size = "Aptos", Pt(8)
+
+    # Bottom Table: PRODUCTIVITY INDEX (P.I.)
+    tbl_shape1 = slide1.shapes.add_table(6, 5, Inches(2.2), Inches(5.15), Inches(8.9), Inches(1.9))
+    tbl1 = tbl_shape1.table
+    set_native_table_grid_style(tbl1)
+    tbl1.columns[0].width = Inches(3.7)
+    tbl1.columns[1].width, tbl1.columns[2].width, tbl1.columns[3].width, tbl1.columns[4].width = Inches(1.3), Inches(1.3), Inches(1.3), Inches(1.3)
+
+    # Master Header
+    c_m1 = tbl1.cell(0, 0)
+    c_m1.merge(tbl1.cell(0, 4))
+    format_cell_native(c_m1, BLUE_HEADER, "PRODUCTIVITY INDEX (P.I.)", font_size=12, bold=True, text_color=WHITE_TEXT)
+
+    # Subheaders
+    format_cell_native(tbl1.cell(1, 0), BLUE_HEADER, "GROUP", font_size=11, bold=True, text_color=WHITE_TEXT)
+    for m_i, m_name in enumerate(month_names):
+        format_cell_native(tbl1.cell(1, m_i + 1), BLUE_HEADER, m_name, font_size=11, bold=True, text_color=WHITE_TEXT)
+    format_cell_native(tbl1.cell(1, 4), BLUE_HEADER, "AVERAGE", font_size=11, bold=True, text_color=WHITE_TEXT)
+
+    # Data Rows
+    for r_i, grp in enumerate(target_groups, start=2):
+        format_cell_native(tbl1.cell(r_i, 0), RGBColor(255, 255, 255), grp, font_size=10, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER)
+        for m_i in range(3):
+            format_cell_native(tbl1.cell(r_i, m_i + 1), RGBColor(255, 255, 255), f"{group_stats[grp]['m_pis'][m_i]:.1f}", font_size=11, bold=False, text_color=TEXT_BLACK)
+        # Highlighted Average column
+        format_cell_native(tbl1.cell(r_i, 4), RGBColor(190, 218, 245), f"{group_stats[grp]['quarter_pi']:.1f}", font_size=12, bold=True, text_color=TEXT_BLACK)
+
+    # =========================================================================
+    # SLIDE 2: OUTPUT & TAT PERFORMANCE OF <QUARTER> (SIDE-BY-SIDE)
+    # =========================================================================
+    slide2 = prs.slides.add_slide(blank_layout)
+    set_slide_background(slide2, prs, "Grey Wave.png", BG_COLOR)
+
+    t_box2 = slide2.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65))
+    p2 = t_box2.text_frame.paragraphs[0]
+    p2.text = f"OUTPUT & TAT PERFORMANCE OF {q_key}"
+    p2.font.name, p2.font.bold, p2.font.size, p2.font.color.rgb = "Arial", True, Pt(26), CORAL_TITLE
+
+    # -----------------------------
+    # LEFT HALF: OUTPUT (VOLUME)
+    # -----------------------------
+    c_out_x, c_out_y, c_out_w, c_out_h = Inches(0.4), Inches(1.15), Inches(6.0), Inches(3.8)
+    card_out = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, c_out_x, c_out_y, c_out_w, c_out_h)
+    card_out.fill.solid()
+    card_out.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    card_out.line.color.rgb = RGBColor(210, 210, 210)
+
+    data_out = CategoryChartData()
+    data_out.categories = target_groups
+    for m_i, m_name in enumerate(month_names):
+        data_out.add_series(m_name, [group_stats[g]["m_vols"][m_i] for g in target_groups])
+
+    ch_shape_out = slide2.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED, c_out_x + Inches(0.1), c_out_y + Inches(0.08), c_out_w - Inches(0.2), c_out_h - Inches(0.45), data_out)
+    ch_out = ch_shape_out.chart
+    ch_out.has_title = True
+    ch_out.chart_title.text_frame.text = f"OUTPUT OF {q_key}"
+    p_to = ch_out.chart_title.text_frame.paragraphs[0]
+    p_to.font.name, p_to.font.bold, p_to.font.size, p_to.font.color.rgb = "Aptos", True, Pt(14), RGBColor(60, 60, 60)
+
+    teal_palette = [RGBColor(122, 210, 210), RGBColor(46, 139, 139), RGBColor(21, 75, 75)]
+    for s_idx, s in enumerate(ch_out.series):
+        s.format.fill.solid()
+        s.format.fill.fore_color.rgb = teal_palette[s_idx % len(teal_palette)]
+        s.has_data_labels = True
+        for dl in s.data_labels:
+            dl.font.name, dl.font.size = "Aptos", Pt(7)
+
+    ch_out.has_legend = True
+    ch_out.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch_out.legend.font.name, ch_out.legend.font.size = "Aptos", Pt(7.5)
+
+    # Left Table: OUTPUT
+    tbl_out_s = slide2.shapes.add_table(6, 6, Inches(0.4), Inches(5.15), Inches(6.0), Inches(1.9))
+    tbl_o = tbl_out_s.table
+    set_native_table_grid_style(tbl_o)
+    tbl_o.columns[0].width = Inches(2.2)
+    for c_i in range(1, 6): tbl_o.columns[c_i].width = Inches(0.76)
+
+    c_mo = tbl_o.cell(0, 0)
+    c_mo.merge(tbl_o.cell(0, 5))
+    format_cell_native(c_mo, TEAL_HEADER, "OUTPUT", font_size=11, bold=True, text_color=WHITE_TEXT)
+
+    format_cell_native(tbl_o.cell(1, 0), TEAL_HEADER, "GROUP", font_size=9, bold=True, text_color=WHITE_TEXT)
+    for m_i, m_name in enumerate(month_names):
+        format_cell_native(tbl_o.cell(1, m_i + 1), TEAL_HEADER, m_name, font_size=9, bold=True, text_color=WHITE_TEXT)
+    format_cell_native(tbl_o.cell(1, 4), TEAL_HEADER, "TOTAL", font_size=9, bold=True, text_color=WHITE_TEXT)
+    format_cell_native(tbl_o.cell(1, 5), TEAL_HEADER, "AVERAGE", font_size=9, bold=True, text_color=WHITE_TEXT)
+
+    for r_i, grp in enumerate(target_groups, start=2):
+        format_cell_native(tbl_o.cell(r_i, 0), RGBColor(255, 255, 255), grp, font_size=8, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER)
+        for m_i in range(3):
+            format_cell_native(tbl_o.cell(r_i, m_i + 1), RGBColor(255, 255, 255), str(group_stats[grp]["m_vols"][m_i]), font_size=9, text_color=TEXT_BLACK)
+        format_cell_native(tbl_o.cell(r_i, 4), RGBColor(220, 240, 240), str(group_stats[grp]["tot_vol"]), font_size=9.5, bold=True, text_color=TEXT_BLACK)
+        format_cell_native(tbl_o.cell(r_i, 5), RGBColor(200, 230, 230), str(group_stats[grp]["avg_mo_vol"]), font_size=9.5, bold=True, text_color=TEXT_BLACK)
+
+    # -----------------------------
+    # RIGHT HALF: TURNAROUND TIME
+    # -----------------------------
+    c_tat_x, c_tat_y, c_tat_w, c_tat_h = Inches(6.9), Inches(1.15), Inches(6.0), Inches(3.8)
+    card_tat = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, c_tat_x, c_tat_y, c_tat_w, c_tat_h)
+    card_tat.fill.solid()
+    card_tat.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    card_tat.line.color.rgb = RGBColor(210, 210, 210)
+
+    data_tat = CategoryChartData()
+    data_tat.categories = target_groups
+    for m_i, m_name in enumerate(month_names):
+        data_tat.add_series(m_name, [group_stats[g]["m_tats"][m_i] for g in target_groups])
+
+    ch_shape_tat = slide2.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, c_tat_x + Inches(0.1), c_tat_y + Inches(0.08), c_tat_w - Inches(0.2), c_tat_h - Inches(0.45), data_tat)
+    ch_tat = ch_shape_tat.chart
+    ch_tat.has_title = True
+    ch_tat.chart_title.text_frame.text = f"TURNAROUND TIME OF {q_key}"
+    p_tt = ch_tat.chart_title.text_frame.paragraphs[0]
+    p_tt.font.name, p_tt.font.bold, p_tt.font.size, p_tt.font.color.rgb = "Aptos", True, Pt(14), RGBColor(60, 60, 60)
+
+    green_palette = [RGBColor(152, 228, 176), RGBColor(0, 176, 80), RGBColor(0, 104, 55)]
+    for s_idx, s in enumerate(ch_tat.series):
+        s.format.fill.solid()
+        s.format.fill.fore_color.rgb = green_palette[s_idx % len(green_palette)]
+        s.has_data_labels = True
+        for dl in s.data_labels:
+            dl.font.name, dl.font.size = "Aptos", Pt(7)
+
+    ch_tat.has_legend = True
+    ch_tat.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch_tat.legend.font.name, ch_tat.legend.font.size = "Aptos", Pt(7.5)
+
+    # Right Table: TURNAROUND TIME (TAT)
+    tbl_tat_s = slide2.shapes.add_table(6, 5, Inches(6.9), Inches(5.15), Inches(6.0), Inches(1.9))
+    tbl_t = tbl_tat_s.table
+    set_native_table_grid_style(tbl_t)
+    tbl_t.columns[0].width = Inches(2.2)
+    for c_i in range(1, 5): tbl_t.columns[c_i].width = Inches(0.95)
+
+    c_mt = tbl_t.cell(0, 0)
+    c_mt.merge(tbl_t.cell(0, 4))
+    format_cell_native(c_mt, RGBColor(0, 176, 80), "TURNAROUND TIME (TAT)", font_size=11, bold=True, text_color=WHITE_TEXT)
+
+    format_cell_native(tbl_t.cell(1, 0), RGBColor(0, 176, 80), "GROUP", font_size=9, bold=True, text_color=WHITE_TEXT)
+    for m_i, m_name in enumerate(month_names):
+        format_cell_native(tbl_t.cell(1, m_i + 1), RGBColor(0, 176, 80), m_name, font_size=9, bold=True, text_color=WHITE_TEXT)
+    format_cell_native(tbl_t.cell(1, 4), RGBColor(0, 176, 80), "AVERAGE", font_size=9, bold=True, text_color=WHITE_TEXT)
+
+    for r_i, grp in enumerate(target_groups, start=2):
+        format_cell_native(tbl_t.cell(r_i, 0), RGBColor(255, 255, 255), grp, font_size=8, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER)
+        for m_i in range(3):
+            format_cell_native(tbl_t.cell(r_i, m_i + 1), RGBColor(255, 255, 255), f"{group_stats[grp]['m_tats'][m_i]}%", font_size=9, text_color=TEXT_BLACK)
+        format_cell_native(tbl_t.cell(r_i, 4), RGBColor(200, 235, 210), f"{group_stats[grp]['quarter_tat']}%", font_size=9.5, bold=True, text_color=TEXT_BLACK)
+
+    output_stream = io.BytesIO()
+    prs.save(output_stream)
+    output_stream.seek(0)
+    return output_stream

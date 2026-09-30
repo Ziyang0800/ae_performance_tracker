@@ -9,7 +9,7 @@ import os
 import warnings
 from datetime import date, datetime
 from parser import ingest_attendance, ingest_calibrations, find_attendance_header_and_period, ingest_rejections
-from pptx_generator import generate_monthly_deck
+from pptx_generator import generate_monthly_deck, generate_quarterly_deck
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
@@ -1129,6 +1129,41 @@ def export_quarterly_data():
     excel_stream.seek(0)
     clean_q = re.sub(r'[^a-zA-Z0-9_]', '_', selected_quarter)
     return send_file(excel_stream, as_attachment=True, download_name=f"Quarterly_Calculation_Audit_{clean_q}.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/export_quarterly_pptx", strict_slashes=False)
+def export_quarterly_pptx():
+    conn = get_db()
+    req_quarter = request.args.get("quarter")
+
+    # Fetch available quarters
+    periods_db = conn.execute(
+        "SELECT DISTINCT cal_year as yr, cal_month as mo FROM calibrations WHERE cal_year IS NOT NULL AND cal_month IS NOT NULL ORDER BY yr ASC, mo ASC").fetchall()
+    if not periods_db:
+        conn.close()
+        flash("No calibration data available to export.", "warning")
+        return redirect(url_for("analytics"))
+
+    fiscal_quarters_map = {}
+    for r in periods_db:
+        cal_y, m = int(r["yr"]), int(r["mo"])
+        q_label, fiscal_yr, _ = get_keysight_fiscal_info(cal_y, m)
+        q_key = f"{q_label} FY'{str(fiscal_yr)[-2:]}"
+        fiscal_quarters_map[q_key] = True
+
+    selected_quarter = req_quarter if req_quarter and req_quarter in fiscal_quarters_map else \
+    list(fiscal_quarters_map.keys())[-1]
+
+    ppt_stream = generate_quarterly_deck(conn, selected_quarter)
+    conn.close()
+
+    clean_q = re.sub(r'[^a-zA-Z0-9_]', '_', selected_quarter)
+    return send_file(
+        ppt_stream,
+        as_attachment=True,
+        download_name=f"Quarterly_Report_Slides_{clean_q}.pptx",
+        mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
 
 @app.route("/export_pptx", strict_slashes=False)
 def export_pptx():

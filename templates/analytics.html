@@ -214,6 +214,26 @@
         </div>
     </div>
 
+    <div class="d-flex align-items-center gap-2">
+            <label class="small fw-bold text-muted text-nowrap">Fiscal Quarter:</label>
+            <select class="form-select form-select-sm fw-bold border-primary text-primary shadow-sm" style="width: 190px;" onchange="location.href='/analytics?quarter=' + this.value;">
+                {% for q in available_quarters %}
+                <option value="{{ q.key }}" {{ 'selected' if q.key == selected_quarter else '' }}>
+                    {{ q.label }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <a href="{{ url_for('export_quarterly_data', quarter=selected_quarter) }}" class="btn btn-outline-success btn-sm fw-bold shadow-sm" title="Download Excel audit file containing raw units and calculations">
+                📊 Excel (.xlsx)
+            </a>
+
+            <!-- NEW 1-CLICK QUARTERLY SLIDES BUTTON -->
+            <a href="{{ url_for('export_quarterly_pptx', quarter=selected_quarter) }}" class="btn btn-outline-danger btn-sm fw-bold shadow-sm" title="Download automated executive PowerPoint slides matching briefing format">
+                📥 Export Slides (.pptx)
+            </a>
+        </div>
+
     <!-- 4 Group Overview Cards -->
     <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-4">
         {% for g in quarterly_group_data %}
