@@ -711,23 +711,6 @@ def calculate_quarterly_engine(conn, selected_quarter):
     if not fiscal_quarters_map:
         return [], {}, [], [], [], []
 
-    sorted_quarters = list(fiscal_quarters_map.values())
-    sorted_quarters.sort(key=lambda x: (x["fiscal_yr"], x["q_num"]))
-
-    # Support for Full Fiscal Year (e.g. FULL_FY_2026)
-    if selected_quarter and selected_quarter.startswith("FULL_FY_"):
-        target_fy = int(selected_quarter.replace("FULL_FY_", ""))
-        q_key = selected_quarter
-        quarter_months = []
-        prev_quarter_months = []
-        for r in periods_db:
-            cal_y, m = int(r["yr"]), int(r["mo"])
-            _, fy, _ = get_keysight_fiscal_info(cal_y, m)
-            if fy == target_fy:
-                quarter_months.append((cal_y, m))
-            elif fy == target_fy - 1:
-                prev_quarter_months.append((cal_y, m))
-    else:
         # -------------------------------------------------------------
         # FISCAL PERIOD RESOLUTION (QUARTER VS FULL FISCAL YEAR)
         # -------------------------------------------------------------
@@ -752,13 +735,6 @@ def calculate_quarterly_engine(conn, selected_quarter):
             prev_quarter_months = sorted_quarters[current_idx - 1]["months"] if current_idx > 0 else []
             num_months_in_period = 3.0
             period_suffix = "QoQ"
-
-    all_engineers = conn.execute("""
-        SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.custom_target_pi, 
-               e.activation_date, e.resigned_date, s.name as station_name, s.target_pi as st_target, s.group_name 
-        FROM engineers e LEFT JOIN stations s ON e.station_id = s.id 
-        WHERE (e.track_performance = 1 OR e.track_performance IS NULL)
-    """).fetchall()
 
     muted_rows = conn.execute("SELECT username FROM ignored_technicians").fetchall()
     muted_users = set([m["username"].strip().lower() for m in muted_rows])
