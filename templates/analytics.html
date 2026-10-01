@@ -172,11 +172,14 @@
 <!-- ========================================================================= -->
 <!-- 3. QUARTERLY SEGMENT GROUP PERFORMANCE                                    -->
 <!-- ========================================================================= -->
+<!-- ========================================================================= -->
+<!-- 2. QUARTERLY SEGMENT GROUP PERFORMANCE                                    -->
+<!-- ========================================================================= -->
 <div class="card shadow-sm p-4 bg-white border-0 mb-4">
     {% if unmapped_models_in_quarter %}
     <div class="alert alert-danger py-2 shadow-sm d-flex justify-content-between align-items-center mb-3">
         <div>
-            <strong>⚠️ {{ unmapped_models_in_quarter|length }} Unmapped Model(s) Found in {{ selected_quarter }}:</strong>
+            <strong>⚠️ {{ unmapped_models_in_quarter|length }} Unmapped Model(s) Found:</strong>
             <small class="d-block text-danger">These models are currently unassigned and excluded from Segment Group metrics.</small>
             <div class="d-flex flex-wrap gap-2 mt-1">
                 {% for um in unmapped_models_in_quarter %}
@@ -192,15 +195,16 @@
     </div>
     {% endif %}
 
+    <!-- ONLY ONE TOOLBAR (CLEAN & UNIQUE) -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h5 class="fw-bold text-dark mb-0">Quarterly Segment Group Performance</h5>
-            <small class="text-muted">Averaged P.I. with Quarter-over-Quarter (QoQ) deltas on P.I., TAT, and Rejections</small>
+            <small class="text-muted">Averaged P.I. with Quarter-over-Quarter (QoQ) progression and unified weighted TAT</small>
         </div>
 
         <div class="d-flex align-items-center gap-2">
-            <label class="small fw-bold text-muted text-nowrap">Fiscal Quarter:</label>
-            <select class="form-select form-select-sm fw-bold border-primary text-primary shadow-sm" style="width: 190px;" onchange="location.href='/analytics?quarter=' + this.value;">
+            <label class="small fw-bold text-muted text-nowrap">Fiscal Period:</label>
+            <select class="form-select form-select-sm fw-bold border-primary text-primary shadow-sm" style="width: 220px;" onchange="location.href='/analytics?quarter=' + this.value;">
                 {% for q in available_quarters %}
                 <option value="{{ q.key }}" {{ 'selected' if q.key == selected_quarter else '' }}>
                     {{ q.label }}
@@ -208,31 +212,16 @@
                 {% endfor %}
             </select>
 
-            <a href="{{ url_for('export_quarterly_data', quarter=selected_quarter) }}" class="btn btn-outline-success btn-sm fw-bold shadow-sm" title="Download Excel audit file containing raw units and calculations">
-                📥 Export Calculation Data (.xlsx)
+            <a href="{{ url_for('export_quarterly_data', quarter=selected_quarter) }}" class="btn btn-outline-success btn-sm fw-bold shadow-sm" title="Download Excel audit file">
+                📊 Excel (.xlsx)
+            </a>
+
+            <a href="{{ url_for('export_quarterly_pptx', quarter=selected_quarter) }}" class="btn btn-outline-danger btn-sm fw-bold shadow-sm" title="Download executive PowerPoint slides">
+                📥 Export Slides (.pptx)
             </a>
         </div>
     </div>
 
-    <div class="d-flex align-items-center gap-2">
-            <label class="small fw-bold text-muted text-nowrap">Fiscal Quarter:</label>
-            <select class="form-select form-select-sm fw-bold border-primary text-primary shadow-sm" style="width: 190px;" onchange="location.href='/analytics?quarter=' + this.value;">
-                {% for q in available_quarters %}
-                <option value="{{ q.key }}" {{ 'selected' if q.key == selected_quarter else '' }}>
-                    {{ q.label }}
-                </option>
-                {% endfor %}
-            </select>
-
-            <a href="{{ url_for('export_quarterly_data', quarter=selected_quarter) }}" class="btn btn-outline-success btn-sm fw-bold shadow-sm" title="Download Excel audit file containing raw units and calculations">
-                📊 Excel (.xlsx)
-            </a>
-
-            <!-- NEW 1-CLICK QUARTERLY SLIDES BUTTON -->
-            <a href="{{ url_for('export_quarterly_pptx', quarter=selected_quarter) }}" class="btn btn-outline-danger btn-sm fw-bold shadow-sm" title="Download automated executive PowerPoint slides matching briefing format">
-                📥 Export Slides (.pptx)
-            </a>
-        </div>
 
     <!-- 4 Group Overview Cards -->
     <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-4">

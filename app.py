@@ -972,7 +972,8 @@ def analytics():
 
     available_quarters = list(fiscal_quarters_map.values())
     available_quarters.sort(key=lambda x: (x["fiscal_yr"], x["q_num"]), reverse=True)
-    # Inject Full Fiscal Year choices into the dropdown list
+
+    # Inject Full Fiscal Year options
     distinct_fy = sorted(list(set(t["fiscal_year"] for t in timeline)), reverse=True)
     for fy in distinct_fy:
         available_quarters.append({
@@ -981,8 +982,11 @@ def analytics():
             "fiscal_yr": fy,
             "q_num": 99
         })
+
+    # Validate without forcing FULL_FY back to Q4
+    valid_keys = set(q["key"] for q in available_quarters)
     req_quarter = request.args.get("quarter")
-    selected_quarter = req_quarter if req_quarter and req_quarter in fiscal_quarters_map else available_quarters[0]["key"]
+    selected_quarter = req_quarter if (req_quarter and req_quarter in valid_keys) else available_quarters[0]["key"]
 
     active_engineers = conn.execute("SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.activation_date, e.resigned_date FROM engineers e WHERE (e.track_performance = 1 OR e.track_performance IS NULL)").fetchall()
     roster_usernames = set([e["username"].strip().lower() for e in active_engineers if e["username"]])
@@ -1081,7 +1085,11 @@ def export_quarterly_data():
         fiscal_quarters_map[q_key] = True
         fiscal_quarters_map[f"FULL_FY_{fiscal_yr}"] = True
 
-    selected_quarter = req_quarter if req_quarter and req_quarter in fiscal_quarters_map else list(fiscal_quarters_map.keys())[-1]
+    valid_export_keys = set(fiscal_quarters_map.keys())
+    for r in periods_db:
+        _, fy, _ = get_keysight_fiscal_info(int(r["yr"]), int(r["mo"]))
+        valid_export_keys.add(f"FULL_FY_{fy}")
+    selected_quarter = req_quarter if (req_quarter and req_quarter in valid_export_keys) else list(fiscal_quarters_map.keys())[-1]
     quarterly_group_data, overall_row, raw_calibrations_rows, raw_labor_rows, _, _ = calculate_quarterly_engine(conn, selected_quarter)
     conn.close()
 

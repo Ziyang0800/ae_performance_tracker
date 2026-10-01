@@ -201,6 +201,58 @@ def resolve_engineer_station(conn, engineer_id, fallback_station_id, rep_year, r
     return None, "Unassigned", 99, 3.0, 1
 
 
+def compute_month_dept_avg_pi(conn, y, m):
+    """Computes exact Department Average Station P.I. (Matches Dashboard and Slide 7)."""
+    stations = conn.execute(
+        "SELECT id, name FROM stations WHERE is_active = 1 AND name NOT LIKE '%MECH%' ORDER BY sort_order ASC, name ASC").fetchall()
+    all_engs = conn.execute(
+        "SELECT id, formal_name, username, station_id, shift_hours, activation_date, resigned_date FROM engineers WHERE track_performance = 1").fetchall()
+    muted_users = set(
+        [r[0].strip().lower() for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+
+    _, num_d = calendar.monthrange(y, m)
+    m_start, m_end = date(y, m, 1), date(y, m, num_d)
+
+    df_cals = pd.read_sql("SELECT cal_by FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[y, m])
+    df_att = pd.read_sql("SELECT formal_name, capped_hours FROM attendance WHERE year = ? AND month = ?", conn,
+                         params=[y, m])
+    if not df_att.empty:
+        df_att["clean_name"] = df_att["formal_name"].apply(normalize_str)
+
+    station_pis = []
+    for st in stations:
+        st_id = st["id"]
+        st_aes = []
+        for e in all_engs:
+            if e["username"].strip().lower() in muted_users: continue
+            act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
+            if not act_d or act_d > m_end: continue
+            if res_d and res_d < m_start: continue
+            assigned_st_id, _, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], y, m)
+            if st_active and assigned_st_id == st_id:
+                st_aes.append(e)
+
+        if not st_aes:
+            continue
+
+        st_units = 0
+        st_days = 0.0
+        for e in st_aes:
+            u_clean = e["username"].strip().lower()
+            if not df_cals.empty:
+                st_units += len(df_cals[df_cals["cal_by"].astype(str).str.strip().str.lower() == u_clean])
+            fn_clean = normalize_str(e["formal_name"])
+            shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
+            if not df_att.empty:
+                hrs = df_att[df_att["clean_name"] == fn_clean]["capped_hours"].sum()
+                st_days += (hrs / shift)
+
+        if st_days > 0:
+            st_pi = round(st_units / st_days, 1)
+            station_pis.append(st_pi)
+
+    return round(sum(station_pis) / len(station_pis), 1) if station_pis else 0.0
+
 def add_kpi_scorecard_slide(prs, conn, year, month):
     blank_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_layout)
@@ -307,7 +359,7 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
                 station_pis.append(round(s_info["units"] / s_info["days"], 1))
 
         dept_avg_station_pi = round(sum(station_pis) / len(station_pis), 1) if station_pis else 3.2
-        actual_data[m_lbl]["pi"] = dept_avg_station_pi
+        actual_data[m_lbl]["pi"] = compute_month_dept_avg_pi(conn, y_num, m_num)
 
     t_shape = slide.shapes.add_table(8, 5, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.6))
     tbl = t_shape.table
