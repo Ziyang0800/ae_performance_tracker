@@ -72,12 +72,13 @@ PILL_BORDER = RGBColor(74, 189, 196)
 GREEN_DELTA = RGBColor(46, 204, 113)
 RED_DELTA = RGBColor(231, 76, 60)
 
+# Station Chart Colors (1st Yellow, 2nd Blue, 3rd Green, 4th Purple, 5th Orange)
 CHART_SERIES_COLORS = [
-    RGBColor(255, 192, 0),
-    RGBColor(55, 96, 146),
-    RGBColor(0, 176, 80),
-    RGBColor(155, 89, 182),
-    RGBColor(230, 126, 34)
+    RGBColor(255, 192, 0),   # 1st person: Yellow / Gold
+    RGBColor(55, 96, 146),   # 2nd person: Steel Blue
+    RGBColor(0, 176, 80),    # 3rd person: Green
+    RGBColor(155, 89, 182),  # 4th person: Purple
+    RGBColor(230, 126, 34)   # 5th person: Orange
 ]
 
 OUTPUT_PURPLE = RGBColor(91, 52, 138)
@@ -233,8 +234,7 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
         m_start, m_end = date(y_num, m_num, 1), date(y_num, m_num, m_days)
 
         active_ae_usernames = []
-        ae_shift_map = {}
-        ae_name_norm_map = {}
+        station_monthly_data = {}
 
         for e in all_engineers:
             u_clean = str(e["username"]).strip().lower()
@@ -247,8 +247,8 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
             if not st_active: continue
 
             active_ae_usernames.append(e["username"])
-            ae_shift_map[u_clean] = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
-            ae_name_norm_map[normalize_str(e["formal_name"])] = ae_shift_map[u_clean]
+            if st_name not in station_monthly_data:
+                station_monthly_data[st_name] = {"units": 0, "days": 0.0}
 
         if active_ae_usernames:
             placeholders = ",".join(["?"] * len(active_ae_usernames))
@@ -281,16 +281,32 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
         else:
             actual_data[m_lbl]["kgso_ext"] = 100.0
 
-        total_units = len(df_c)
+        # P.I. ALIGNMENT FIX: Exactly matching the Dashboard and P.I. slide (Average of Station P.I.s)
         df_att_month = pd.read_sql("SELECT formal_name, capped_hours, year, month FROM attendance WHERE year = ? AND month = ?", conn, params=[y_num, m_num])
-        eff_days_sum = 0.0
         if not df_att_month.empty:
-            for _, att_row in df_att_month.iterrows():
-                f_norm = normalize_str(att_row["formal_name"])
-                if f_norm in ae_name_norm_map:
-                    eff_days_sum += (float(att_row["capped_hours"]) / ae_name_norm_map[f_norm])
+            df_att_month["clean_name"] = df_att_month["formal_name"].apply(normalize_str)
 
-        actual_data[m_lbl]["pi"] = round(total_units / eff_days_sum, 1) if eff_days_sum > 0 else 3.2
+        for e in all_engineers:
+            st_id, st_name, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], y_num, m_num)
+            if not st_active or st_name not in station_monthly_data: continue
+            
+            u_clean = e["username"].strip().lower()
+            if not df_c.empty:
+                station_monthly_data[st_name]["units"] += len(df_c[df_c["cal_by"].astype(str).str.strip().str.lower() == u_clean])
+            
+            fn_norm = normalize_str(e["formal_name"])
+            shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
+            if not df_att_month.empty:
+                hrs = df_att_month[(df_att_month["clean_name"] == fn_norm) & (df_att_month["year"] == y_num) & (df_att_month["month"] == m_num)]["capped_hours"].sum()
+                station_monthly_data[st_name]["days"] += (hrs / shift)
+
+        station_pis = []
+        for s_info in station_monthly_data.values():
+            if s_info["days"] > 0:
+                station_pis.append(s_info["units"] / s_info["days"])
+        
+        dept_avg_station_pi = round(sum(station_pis) / len(station_pis), 1) if station_pis else 3.2
+        actual_data[m_lbl]["pi"] = dept_avg_station_pi
 
     t_shape = slide.shapes.add_table(8, 5, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.6))
     tbl = t_shape.table
@@ -352,7 +368,7 @@ def generate_monthly_deck(conn, year, month):
     df_att_cur = pd.read_sql("SELECT formal_name, day, raw_status, capped_hours FROM attendance WHERE year = ? AND month = ?", conn, params=[year, month])
     if not df_att_cur.empty: df_att_cur["clean_name"] = df_att_cur["formal_name"].str.strip().str.lower()
 
-    df_att_prev = pd.read_sql("SELECT formal_name, SUM(capped_hours) as tot_hrs FROM attendance WHERE year = ? AND month = ?", conn, params=[prev_y, prev_m])
+    df_att_prev = pd.read_sql("SELECT formal_name, SUM(capped_hours) as tot_hrs FROM attendance WHERE year = ? AND month = ? GROUP BY formal_name", conn, params=[prev_y, prev_m])
     prev_user_hrs_map = dict(zip(df_att_prev["formal_name"].str.strip().str.lower(), df_att_prev["tot_hrs"])) if not df_att_prev.empty else {}
 
     all_engineers = conn.execute("SELECT id, formal_name, username, display_name, station_id, shift_hours, activation_date, resigned_date, is_active, track_performance FROM engineers ORDER BY formal_name").fetchall()
@@ -592,7 +608,9 @@ def generate_monthly_deck(conn, year, month):
                 format_cell_native(tbl.cell(curr_row + 1, d + 1), cell_bg, disp_val, font_size=8, bold=(is_work and out_val == 0), text_color=t_color)
             curr_row += 2
 
-        # Left Chart: Stacked Column
+        # -------------------------------------------------------------
+        # LEFT CHART: DAILY OUTPUT (STACKED COLUMN)
+        # -------------------------------------------------------------
         c1_x, c1_y, c1_w, c1_h = Inches(0.22), Inches(3.61), Inches(6.80), Inches(3.41)
         card1 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, c1_x, c1_y, c1_w, c1_h)
         card1.fill.solid(); card1.fill.fore_color.rgb, card1.line.color.rgb = CONTAINER_BG, CARD_BORDER
@@ -605,12 +623,37 @@ def generate_monthly_deck(conn, year, month):
         bar_chart = ch_shape1.chart
         bar_chart.has_title = True; bar_chart.chart_title.text_frame.text = f"DAILY OUTPUT OF {st_name.upper()} STATION"
         bar_chart.chart_title.text_frame.paragraphs[0].font.name, bar_chart.chart_title.text_frame.paragraphs[0].font.size, bar_chart.chart_title.text_frame.paragraphs[0].font.bold = "Aptos", Pt(16), True
-        bar_chart.has_legend = True; bar_chart.legend.position, bar_chart.legend.include_in_layout, bar_chart.legend.font.name, bar_chart.legend.font.size = XL_LEGEND_POSITION.TOP, False, "Aptos", Pt(8)
+
+        # RULE: Remove legend if station has only 1 AE!
+        if len(st_engineers) <= 1:
+            bar_chart.has_legend = False
+        else:
+            bar_chart.has_legend = True
+            bar_chart.legend.position = XL_LEGEND_POSITION.TOP
+            bar_chart.legend.include_in_layout = False
+            bar_chart.legend.font.name = "Aptos"
+            bar_chart.legend.font.size = Pt(8)
+
+        # Explicit Aptos 8pt on Category and Value Axes
+        cat_axis = bar_chart.category_axis
+        cat_axis.tick_labels.font.name = "Aptos"
+        cat_axis.tick_labels.font.size = Pt(8)
+        cat_axis.tick_labels.offset = 100
+        cat_axis.has_major_gridlines = False
+
+        val_axis = bar_chart.value_axis
+        val_axis.tick_labels.font.name = "Aptos"
+        val_axis.tick_labels.font.size = Pt(8)
+        val_axis.has_major_gridlines = True
+        val_axis.major_gridlines.format.line.color.rgb = RGBColor(230, 230, 230)
 
         for s_idx, series in enumerate(bar_chart.series):
-            series.format.fill.solid(); series.format.fill.fore_color.rgb = CHART_SERIES_COLORS[s_idx % len(CHART_SERIES_COLORS)]
+            series.format.fill.solid()
+            series.format.fill.fore_color.rgb = CHART_SERIES_COLORS[s_idx % len(CHART_SERIES_COLORS)]
 
-        # Right Chart: Contribution Pie
+        # -------------------------------------------------------------
+        # RIGHT CHART: CONTRIBUTION PIE (STRICT MATCHING COLORS)
+        # -------------------------------------------------------------
         c2_x, c2_y, c2_w, c2_h = Inches(7.17), Inches(3.61), Inches(4.78), Inches(2.81)
         card2 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, c2_x, c2_y, c2_w, c2_h)
         card2.fill.solid(); card2.fill.fore_color.rgb, card2.line.color.rgb = CONTAINER_BG, CARD_BORDER
@@ -623,9 +666,20 @@ def generate_monthly_deck(conn, year, month):
         pie_chart.style = 1; pie_chart.has_title = True; pie_chart.chart_title.text_frame.text = "CONTRIBUTION"
         pie_chart.chart_title.text_frame.paragraphs[0].font.name, pie_chart.chart_title.text_frame.paragraphs[0].font.size, pie_chart.chart_title.text_frame.paragraphs[0].font.bold = "Aptos", Pt(16), True
         pie_chart.has_legend = False
-        plots = pie_chart.plots[0]; plots.has_data_labels = True
-        plots.data_labels.position, plots.data_labels.show_category_name, plots.data_labels.show_percentage, plots.data_labels.show_value = XL_DATA_LABEL_POSITION.OUTSIDE_END, True, True, False
+        
+        plots = pie_chart.plots[0]
+        plots.has_data_labels = True
+        plots.data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+        plots.data_labels.show_category_name, plots.data_labels.show_percentage, plots.data_labels.show_value = True, True, False
         plots.data_labels.font.name, plots.data_labels.font.size = "Aptos", Pt(7)
+
+        # STRICT COLORING FOR PIE SLICES (1st Yellow, 2nd Blue, 3rd Green...)
+        try:
+            for s_idx, point in enumerate(plots.series[0].points):
+                point.format.fill.solid()
+                point.format.fill.fore_color.rgb = CHART_SERIES_COLORS[s_idx % len(CHART_SERIES_COLORS)]
+        except Exception:
+            pass
 
         # MoM Pill Box
         p_left, p_top, p_w, p_h = Inches(7.17), Inches(6.52), Inches(4.78), Inches(0.51)
@@ -683,6 +737,7 @@ def generate_monthly_deck(conn, year, month):
         format_cell_native(c_avg_left, CREAM_BEIGE, "AVERAGE P.I. (Total P.I. divided by # of Stations)", font_size=11, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.RIGHT)
         format_cell_native(s_tbl.cell(3, s_cols - 1), CREAM_BEIGE, f"{dept_avg_pi:.1f} {format_delta(dept_avg_pi, prev_dept_avg_pi, True)}", font_size=12, bold=True, text_color=TEXT_BLACK)
 
+        # Output & P.I. Combo Chart with Transparent Overlay
         ch_x, ch_y, ch_w, ch_h = Inches(3.28), Inches(2.94), Inches(6.74), Inches(3.97)
         sum_card = sum_slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, ch_x, ch_y, ch_w, ch_h)
         sum_card.fill.solid(); sum_card.fill.fore_color.rgb, sum_card.line.color.rgb = RGBColor(255, 255, 255), RGBColor(210, 210, 210)
@@ -694,8 +749,16 @@ def generate_monthly_deck(conn, year, month):
 
         base_chart = sum_slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, ch_x + Inches(0.12), ch_y + Inches(0.08), ch_w - Inches(0.24), ch_h - Inches(0.48), data_col).chart
         base_chart.style = 1; base_chart.has_title = True; base_chart.chart_title.text_frame.text = "OUTPUT & P.I."
+        base_chart.chart_title.text_frame.paragraphs[0].font.name = "Aptos"
+        base_chart.chart_title.text_frame.paragraphs[0].font.size = Pt(16)
+        base_chart.chart_title.text_frame.paragraphs[0].font.bold = True
         base_chart.series[0].format.fill.solid(); base_chart.series[0].format.fill.fore_color.rgb = OUTPUT_PURPLE
         base_chart.has_legend = False
+
+        base_chart.category_axis.tick_labels.font.name = "Aptos"
+        base_chart.category_axis.tick_labels.font.size = Pt(8)
+        base_chart.value_axis.tick_labels.font.name = "Aptos"
+        base_chart.value_axis.tick_labels.font.size = Pt(8)
 
         data_line = CategoryChartData()
         data_line.categories = st_categories
@@ -705,6 +768,7 @@ def generate_monthly_deck(conn, year, month):
         line_chart = sum_slide.shapes.add_chart(XL_CHART_TYPE.LINE, ch_x + Inches(0.12), ch_y + Inches(0.08), ch_w - Inches(0.24), ch_h - Inches(0.48), data_line).chart
         line_chart.has_title = False; line_chart.has_legend = False
 
+        # Make overlay transparent
         try:
             sp_pr = line_chart._element.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}spPr')
             if sp_pr is None: line_chart._element.insert(0, parse_xml('<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>'))
@@ -717,6 +781,8 @@ def generate_monthly_deck(conn, year, month):
         except Exception: pass
 
         val_ax2 = line_chart.value_axis; val_ax2.has_major_gridlines = False
+        val_ax2.tick_labels.font.name = "Aptos"
+        val_ax2.tick_labels.font.size = Pt(8)
         try:
             val_ax2_elem = val_ax2._element
             axPos = val_ax2_elem.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}axPos')
@@ -729,6 +795,7 @@ def generate_monthly_deck(conn, year, month):
         s_pi = line_chart.series[0]; s_pi.format.line.color.rgb, s_pi.format.line.width, s_pi.format.line.dash_style = GOLD_PI, Pt(1.5), MSO_LINE.DASH_DOT
         s_tgt = line_chart.series[1]; s_tgt.format.line.color.rgb, s_tgt.format.line.width, s_tgt.format.line.dash_style = BLACK_TARGET, Pt(1.5), MSO_LINE.DASH
 
+        # Legend
         leg_box = sum_slide.shapes.add_textbox(ch_x, ch_y + ch_h - Inches(0.38), ch_w, Inches(0.35))
         p_leg = leg_box.text_frame.paragraphs[0]; p_leg.alignment = PP_ALIGN.CENTER
         r_l1 = p_leg.add_run(); r_l1.text = "■ OUTPUT       "; r_l1.font.bold, r_l1.font.size, r_l1.font.color.rgb = True, Pt(8), OUTPUT_PURPLE
@@ -1032,7 +1099,8 @@ def generate_quarterly_deck(conn, selected_quarter):
     for m_i, m_name in enumerate(month_names):
         data_c1.add_series(m_name, [group_stats[g]["m_pis"][m_i] for g in target_groups])
 
-    ch1 = slide1.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, c1_x + Inches(0.12), c1_y + Inches(0.08), c1_w - Inches(0.24), c1_h - Inches(0.48), data_c1).chart
+    ch_shape1 = slide1.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, c1_x + Inches(0.12), c1_y + Inches(0.08), c1_w - Inches(0.24), c1_h - Inches(0.48), data_c1)
+    ch1 = ch_shape1.chart
     ch1.has_title = True; ch1.chart_title.text_frame.text = f"PRODUCTIVITY INDEX OF {q_key}"
     ch1.chart_title.text_frame.paragraphs[0].font.name, ch1.chart_title.text_frame.paragraphs[0].font.size, ch1.chart_title.text_frame.paragraphs[0].font.bold = "Aptos", Pt(16), True
 
@@ -1043,7 +1111,9 @@ def generate_quarterly_deck(conn, selected_quarter):
         s.data_labels.font.name = "Aptos"
         s.data_labels.font.size = Pt(7.5)
 
-    ch1.has_legend = True; ch1.legend.position, ch1.legend.font.name, ch1.legend.font.size = XL_LEGEND_POSITION.BOTTOM, "Aptos", Pt(8)
+    ch1.has_legend = True
+    ch1.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch1.legend.font.name, ch1.legend.font.size = "Aptos", Pt(8)
 
     tbl1 = slide1.shapes.add_table(6, 5, Inches(2.2), Inches(5.15), Inches(8.9), Inches(1.9)).table
     set_native_table_grid_style(tbl1)
@@ -1085,9 +1155,11 @@ def generate_quarterly_deck(conn, selected_quarter):
     for m_i, m_name in enumerate(month_names):
         data_out.add_series(m_name, [group_stats[g]["m_vols"][m_i] for g in target_groups])
 
-    ch_out = slide2.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED, c_out_x + Inches(0.1), c_out_y + Inches(0.08), c_out_w - Inches(0.2), c_out_h - Inches(0.45), data_out).chart
+    ch_shape_out = slide2.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED, c_out_x + Inches(0.1), c_out_y + Inches(0.08), c_out_w - Inches(0.2), c_out_h - Inches(0.45), data_out)
+    ch_out = ch_shape_out.chart
     ch_out.has_title = True; ch_out.chart_title.text_frame.text = f"OUTPUT OF {q_key}"
-    ch_out.chart_title.text_frame.paragraphs[0].font.name, ch_out.chart_title.text_frame.paragraphs[0].font.size, ch_out.chart_title.text_frame.paragraphs[0].font.bold = "Aptos", Pt(14), True
+    p_to = ch_out.chart_title.text_frame.paragraphs[0]
+    p_to.font.name, p_to.font.bold, p_to.font.size, p_to.font.color.rgb = "Aptos", True, Pt(14), RGBColor(60, 60, 60)
 
     teal_palette = [RGBColor(122, 210, 210), RGBColor(46, 139, 139), RGBColor(21, 75, 75)]
     for s_idx, s in enumerate(ch_out.series):
@@ -1096,7 +1168,9 @@ def generate_quarterly_deck(conn, selected_quarter):
         s.data_labels.font.name = "Aptos"
         s.data_labels.font.size = Pt(7)
 
-    ch_out.has_legend = True; ch_out.legend.position, ch_out.legend.font.name, ch_out.legend.font.size = XL_LEGEND_POSITION.BOTTOM, "Aptos", Pt(7.5)
+    ch_out.has_legend = True
+    ch_out.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch_out.legend.font.name, ch_out.legend.font.size = "Aptos", Pt(7.5)
 
     tbl_o = slide2.shapes.add_table(6, 6, Inches(0.4), Inches(5.15), Inches(6.0), Inches(1.9)).table
     set_native_table_grid_style(tbl_o)
@@ -1141,7 +1215,9 @@ def generate_quarterly_deck(conn, selected_quarter):
         s.data_labels.font.name = "Aptos"
         s.data_labels.font.size = Pt(7)
 
-    ch_tat.has_legend = True; ch_tat.legend.position, ch_tat.legend.font.name, ch_tat.legend.font.size = XL_LEGEND_POSITION.BOTTOM, "Aptos", Pt(7.5)
+    ch_tat.has_legend = True
+    ch_tat.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch_tat.legend.font.name, ch_tat.legend.font.size = "Aptos", Pt(7.5)
 
     tbl_t = slide2.shapes.add_table(6, 5, Inches(6.9), Inches(5.15), Inches(6.0), Inches(1.9)).table
     set_native_table_grid_style(tbl_t)
