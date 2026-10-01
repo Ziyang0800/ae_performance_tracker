@@ -303,8 +303,9 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
         station_pis = []
         for s_info in station_monthly_data.values():
             if s_info["days"] > 0:
-                station_pis.append(s_info["units"] / s_info["days"])
-        
+                # Round each station to 1 decimal place first (matches Dashboard exactly)
+                station_pis.append(round(s_info["units"] / s_info["days"], 1))
+
         dept_avg_station_pi = round(sum(station_pis) / len(station_pis), 1) if station_pis else 3.2
         actual_data[m_lbl]["pi"] = dept_avg_station_pi
 
@@ -688,7 +689,7 @@ def generate_monthly_deck(conn, year, month):
         tf_p = pill.text_frame; tf_p.word_wrap, tf_p.vertical_anchor = True, MSO_ANCHOR.MIDDLE
         p_pi = tf_p.paragraphs[0]; p_pi.alignment = PP_ALIGN.CENTER
 
-        r1 = p_pi.add_run(); r1.text = "Overall Productivity Index: "; r1.font.bold, r1.font.size, r1.font.color.rgb = True, Pt(10.5), TEXT_BLACK
+        r1 = p_pi.add_run(); r1.text = "Station Productivity Index: "; r1.font.bold, r1.font.size, r1.font.color.rgb = True, Pt(10.5), TEXT_BLACK
         r2 = p_pi.add_run(); r2.text = f"{st_pi:.1f} "; r2.font.size, r2.font.color.rgb = Pt(12), TEXT_BLACK
         r3 = p_pi.add_run(); r3.text = f"{format_delta(st_pi, st_prev_pi, True)}  |  "; r3.font.size = Pt(10.5); r3.font.color.rgb = GREEN_DELTA if "+" in format_delta(st_pi, st_prev_pi, True) else (RED_DELTA if "-" in format_delta(st_pi, st_prev_pi, True) else TEXT_BLACK)
         r4 = p_pi.add_run(); r4.text = "Total Units: "; r4.font.bold, r4.font.size, r4.font.color.rgb = True, Pt(10.5), TEXT_BLACK

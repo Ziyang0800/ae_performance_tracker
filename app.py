@@ -728,10 +728,30 @@ def calculate_quarterly_engine(conn, selected_quarter):
             elif fy == target_fy - 1:
                 prev_quarter_months.append((cal_y, m))
     else:
-        q_key = selected_quarter if selected_quarter in fiscal_quarters_map else sorted_quarters[-1]["key"]
-        quarter_months = fiscal_quarters_map[q_key]["months"]
-        current_idx = next((i for i, q in enumerate(sorted_quarters) if q["key"] == q_key), -1)
-        prev_quarter_months = sorted_quarters[current_idx - 1]["months"] if current_idx > 0 else []
+        # -------------------------------------------------------------
+        # FISCAL PERIOD RESOLUTION (QUARTER VS FULL FISCAL YEAR)
+        # -------------------------------------------------------------
+        if selected_quarter and selected_quarter.startswith("FULL_FY_"):
+            target_fy = int(selected_quarter.replace("FULL_FY_", ""))
+            q_key = selected_quarter
+            quarter_months = []
+            prev_quarter_months = []
+            for r in periods_db:
+                cal_y, m = int(r["yr"]), int(r["mo"])
+                _, fy, _ = get_keysight_fiscal_info(cal_y, m)
+                if fy == target_fy:
+                    quarter_months.append((cal_y, m))
+                elif fy == target_fy - 1:
+                    prev_quarter_months.append((cal_y, m))
+            num_months_in_period = max(len(quarter_months), 1)
+            period_suffix = "YoY"
+        else:
+            q_key = selected_quarter if selected_quarter in fiscal_quarters_map else sorted_quarters[-1]["key"]
+            quarter_months = fiscal_quarters_map[q_key]["months"]
+            current_idx = next((i for i, q in enumerate(sorted_quarters) if q["key"] == q_key), -1)
+            prev_quarter_months = sorted_quarters[current_idx - 1]["months"] if current_idx > 0 else []
+            num_months_in_period = 3.0
+            period_suffix = "QoQ"
 
     all_engineers = conn.execute("""
         SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.custom_target_pi, 
@@ -853,7 +873,7 @@ def calculate_quarterly_engine(conn, selected_quarter):
         qoq_err_str = f"+{err_diff}" if (err_diff and err_diff > 0) else (f"{err_diff}" if (err_diff and err_diff < 0) else "(-)")
 
         vol = grp_m["units"]
-        avg_mo = int(round(vol / 3.0))
+        avg_mo = int(round(vol / float(num_months_in_period)))
         errs = grp_m["errors"]
         qual = max(0.0, round(((vol - errs) / vol) * 100.0, 1)) if vol > 0 else 100.0
 
@@ -911,7 +931,7 @@ def calculate_quarterly_engine(conn, selected_quarter):
         "group_name": "OVERALL",
         "supporting_stations": "All Active Stations",
         "volume": cur_tot_u,
-        "avg_monthly_output": int(round(cur_tot_u / 3.0)),
+        "avg_monthly_output": int(round(cur_tot_u / float(num_months_in_period))),
         "pi": cur_tot_pi,
         "qoq_pi_str": f"+{tot_pi_diff:.1f}" if (tot_pi_diff and tot_pi_diff > 0) else (f"{tot_pi_diff:.1f}" if (tot_pi_diff and tot_pi_diff < 0) else "(-)"),
         "qoq_pi_val": tot_pi_diff or 0.0,
