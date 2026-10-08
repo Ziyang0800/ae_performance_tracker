@@ -127,7 +127,35 @@
         </div>
         {% endif %}
 
-        <!-- 3. ACTIONS BAR -->
+        <!-- 3. OUTGOING INSPECTION / REJECTIONS CARD -->
+        {% if rej_summary %}
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-danger text-white fw-bold d-flex justify-content-between align-items-center py-2">
+                <span>3. Outgoing Inspection File: {{ rej_summary.filename }}</span>
+                <span class="badge bg-white text-danger fw-bold">{{ rej_summary.period_label }}</span>
+            </div>
+            <div class="card-body bg-white p-3">
+                <div class="row g-3 text-center">
+                    <div class="col-md-6">
+                        <div class="bg-light p-3 rounded border">
+                            <small class="text-muted d-block fw-bold">TOTAL OUTGOING ERRORS</small>
+                            <h4 class="fw-bold text-danger mb-0">{{ rej_summary.total_errors }}</h4>
+                            <small class="text-muted">rejections detected</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="bg-light p-3 rounded border">
+                            <small class="text-muted d-block fw-bold">AFFECTED TECHNICIANS</small>
+                            <h4 class="fw-bold text-dark mb-0">{{ rej_summary.affected_users }}</h4>
+                            <small class="text-muted">AEs with rejections</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 4. ACTIONS BAR -->
         <div class="card shadow-sm p-3 bg-white border-0 d-flex flex-row justify-content-between align-items-center">
             <a href="/upload/cancel" class="btn btn-outline-secondary px-4 fw-bold">
                 ❌ Cancel & Discard
