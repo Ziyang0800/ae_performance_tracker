@@ -174,10 +174,20 @@ def ingest_rejections(file_stream):
     reason_col = cols.get("failure reason", cols.get("reason", "Failure Reason"))
     remark_col = cols.get("remark", cols.get("remarks by inspector", "remark"))
     service_col = cols.get("service id", cols.get("serviceid", "Service ID"))
+    action_col = cols.get("action", cols.get("action1", None))
+    status_col = cols.get("approved/rejected", None)
 
     df = df.dropna(subset=[cal_by_col, date_col])
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.dropna(subset=[date_col])
+
+    # 1. FILTER OUT NON-REJECTIONS & "WRONG REJECT" ENTRIES
+    if status_col and status_col in df.columns:
+        df = df[df[status_col].astype(str).str.strip().str.lower() == "rejected"]
+
+    if action_col and action_col in df.columns:
+        # Exclude inspector errors ("wrong reject")
+        df = df[~df[action_col].astype(str).str.lower().str.contains("wrong reject")]
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -186,8 +196,13 @@ def ingest_rejections(file_stream):
     df["m"] = df[date_col].dt.month
     unique_periods = df[["y", "m"]].drop_duplicates().values.tolist()
 
+    # 2. PROPERLY DELETE FROM BOTH TABLES TO PREVENT GHOST MISTAKES
     for y, m in unique_periods:
         cur.execute("DELETE FROM rejection_logs WHERE reject_year = ? AND reject_month = ?", (int(y), int(m)))
+        cur.execute("DELETE FROM quality_logs WHERE year = ? AND month = ?", (int(y), int(m)))
+
+    # Fetch muted technicians so we don't log quality errors against FTEs
+    muted_users = set([r[0].strip().lower() for r in cur.execute("SELECT username FROM ignored_technicians").fetchall()])
 
     records = []
     for _, r in df.iterrows():
@@ -204,27 +219,30 @@ def ingest_rejections(file_stream):
         ))
 
     cur.executemany("""
-                    INSERT INTO rejection_logs (service_id, model_id, serial_no, cal_by, reject_date, reject_year,
-                                                reject_month, failure_reason, remark)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, records)
+        INSERT INTO rejection_logs (service_id, model_id, serial_no, cal_by, reject_date, reject_year,
+                                    reject_month, failure_reason, remark)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, records)
 
+    # 3. SYNC TO QUALITY_LOGS (ONLY FOR ACTIVE TRACKED ROSTER MEMBERS)
     for y, m in unique_periods:
         month_df = df[(df["y"] == y) & (df["m"] == m)]
         counts = month_df[cal_by_col].astype(str).str.strip().value_counts().to_dict()
 
         for u, cnt in counts.items():
+            if u.lower() in muted_users:
+                continue
             eng = cur.execute("SELECT id FROM engineers WHERE LOWER(TRIM(username)) = LOWER(TRIM(?))", (u,)).fetchone()
             if eng:
                 eng_id = eng[0]
                 cur.execute("""
-                            INSERT INTO quality_logs (engineer_id, year, month, mistakes)
-                            VALUES (?, ?, ?, ?) ON CONFLICT(engineer_id, year, month)
-                    DO
-                            UPDATE SET mistakes = excluded.mistakes
-                            """, (eng_id, int(y), int(m), int(cnt)))
+                    INSERT INTO quality_logs (engineer_id, year, month, mistakes)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(engineer_id, year, month)
+                    DO UPDATE SET mistakes = excluded.mistakes
+                """, (eng_id, int(y), int(m), int(cnt)))
 
     conn.commit()
     conn.close()
-    print(f"--> [Rejections] Ingested {len(records)} outgoing inspection errors.")
+    print(f"--> [Rejections] Ingested {len(records)} clean outgoing inspection errors.")
     return len(records)
