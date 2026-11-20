@@ -19,7 +19,6 @@
 
     .table-matrix td, .table-matrix th { border: 1px solid #b8cce4 !important; font-size: 0.78rem; padding: 3px; }
     
-    /* 1. STICKY FIRST COLUMN ON DAILY MATRIX */
     .table-matrix th:first-child,
     .table-matrix td:first-child {
         position: sticky;
@@ -29,14 +28,12 @@
         box-shadow: 2px 0 4px rgba(0, 0, 0, 0.08);
     }
 
-    .station-card { border-left: 5px solid #0d6efd; border-radius: 8px; transition: transform 0.15s; }
+    .station-card { border-left: 5px solid #0d6efd; border-radius: 8px; transition: transform 0.15s, box-shadow 0.15s; }
     .station-card:hover { transform: translateY(-2px); }
+    .station-card.station-active { outline: 2px solid #0d6efd; background-color: #f0f6ff !important; }
 
     .sort-header { cursor: pointer; user-select: none; }
     .sort-header:hover { background-color: #e9ecef !important; }
-
-    .editable-cell { cursor: pointer; }
-    .editable-cell:hover { outline: 2px solid #0d6efd; background-color: #fff9db !important; }
 
     .tat-pass { color: #0f5132 !important; font-weight: bold; }
     .tat-warn { color: #b45309 !important; font-weight: bold; }
@@ -49,7 +46,7 @@
         <h4 class="mb-0 fw-bold">Performance Dashboard</h4>
         <small class="text-muted">Tracking Individual & Station Performance</small>
     </div>
-    
+
     <div class="d-flex align-items-center gap-2">
         <div class="btn-group btn-group-sm shadow-sm">
             <button type="button" class="btn btn-outline-secondary fw-bold" onclick="stepPeriod(-1)" title="Previous Month">◀</button>
@@ -105,12 +102,12 @@
     </div>
 </div>
 
-<!-- 2. CLICKABLE BALANCED STATION CARDS -->
+<!-- CLICKABLE BALANCED STATION CARDS -->
 <h6 class="fw-bold text-secondary text-uppercase mb-2">Station Output & Target P.I. Overview (Click card to filter)</h6>
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-xl-6 g-3 mb-4">
     {% for station, data in station_metrics.items() %}
     <div class="col">
-        <div class="card shadow-sm station-card bg-white p-3 h-100" style="cursor: pointer;" onclick="filterStation('{{ station }}', this)" title="Click to filter tables to {{ station }}">
+        <div class="card shadow-sm station-card bg-white p-3 h-100" data-station-card="{{ station }}" style="cursor: pointer;" onclick="filterStation('{{ station }}')" title="Click to filter tables to {{ station }}">
             <div class="d-flex justify-content-between align-items-start mb-2">
                 <span class="text-muted small fw-bold text-uppercase text-truncate" title="{{ station }}">{{ station }}</span>
                 <span class="badge bg-light text-dark border">{{ data.headcount }} AEs</span>
@@ -134,11 +131,11 @@
 
 <!-- QUICK STATION FILTER BUTTONS -->
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <div class="d-flex align-items-center gap-2 flex-wrap">
+    <div class="d-flex align-items-center gap-2 flex-wrap" id="stationFilterButtons">
         <small class="fw-bold text-muted text-uppercase" style="font-size: 0.75rem;">Filter by Station:</small>
-        <button type="button" class="btn btn-outline-secondary btn-xs active fw-bold" onclick="filterStation('all', this)">All Stations</button>
+        <button type="button" class="btn btn-outline-secondary btn-xs active fw-bold" data-station-btn="all" onclick="filterStation('all')">All Stations</button>
         {% for station in station_metrics.keys() %}
-        <button type="button" class="btn btn-outline-secondary btn-xs fw-bold" onclick="filterStation('{{ station }}', this)">{{ station }}</button>
+        <button type="button" class="btn btn-outline-secondary btn-xs fw-bold" data-station-btn="{{ station }}" onclick="filterStation('{{ station }}')">{{ station }}</button>
         {% endfor %}
     </div>
 </div>
@@ -324,7 +321,7 @@
                 {% set row_bg = 'row-person-even' if is_odd_person else 'row-person-odd' %}
                 {% set wknd_bg = 'wknd-cell-odd' if is_odd_person else 'wknd-cell-even' %}
                 {% set ph_bg = 'ph-cell-odd' if is_odd_person else 'ph-cell-even' %}
-                
+
                 <tr data-station="{{ s.station }}">
                     <td rowspan="2" class="text-start align-middle fw-bold {{ row_bg }}">
                         {{ s.formal_name }}<br>
@@ -338,13 +335,7 @@
                     {% for att in s.daily_attendance %}
                         {% set d_info = days_info[loop.index0] %}
                         {% set cell_color = ph_bg if d_info.is_ph else (wknd_bg if d_info.is_weekend else row_bg) %}
-                        <td class="{{ cell_color }} editable-cell {{ 'att-leave' if (att in ['AL', 'MC', 'PH', 'PL', 'CP', 'UPL']) else '' }}"
-                            data-type="hours"
-                            data-user="{{ s.username }}"
-                            data-formal="{{ s.formal_name }}"
-                            data-day="{{ d_info.day_num }}"
-                            data-val="{{ att }}"
-                            title="Double-click to edit hours">
+                        <td class="{{ cell_color }} {{ 'att-leave' if (att in ['AL', 'MC', 'PH', 'PL', 'CP', 'UPL']) else '' }}">
                             {{ att }}
                         </td>
                     {% endfor %}
@@ -356,13 +347,7 @@
                     {% for out in s.daily_output %}
                         {% set d_info = days_info[loop.index0] %}
                         {% set cell_color = ph_bg if d_info.is_ph else (wknd_bg if d_info.is_weekend else row_bg) %}
-                        <td class="{{ cell_color }} editable-cell {{ 'text-danger fw-bold' if out.is_zero_work else ('text-dark fw-bold' if out.has_val else '') }}"
-                            data-type="output"
-                            data-user="{{ s.username }}"
-                            data-formal="{{ s.formal_name }}"
-                            data-day="{{ d_info.day_num }}"
-                            data-val="{{ out.val or '0' }}"
-                            title="Double-click to edit output units">
+                        <td class="{{ cell_color }} {{ 'text-danger fw-bold' if out.is_zero_work else ('text-dark fw-bold' if out.has_val else '') }}">
                             {% if out.is_zero_work %}0{% elif out.has_val %}{{ out.val }}{% endif %}
                         </td>
                     {% endfor %}
@@ -384,14 +369,18 @@
         }
     }
 
-    function filterStation(station, btnElem) {
+    function filterStation(station) {
         const rows = document.querySelectorAll('tbody tr[data-station]');
         rows.forEach(r => {
-            if (station === 'all' || r.getAttribute('data-station') === station) {
-                r.style.display = '';
-            } else {
-                r.style.display = 'none';
-            }
+            r.style.display = (station === 'all' || r.getAttribute('data-station') === station) ? '' : 'none';
+        });
+
+        document.querySelectorAll('[data-station-btn]').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-station-btn') === station);
+        });
+
+        document.querySelectorAll('[data-station-card]').forEach(card => {
+            card.classList.toggle('station-active', card.getAttribute('data-station-card') === station);
         });
     }
 

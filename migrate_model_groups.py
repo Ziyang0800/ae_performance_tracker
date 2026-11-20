@@ -1,9 +1,11 @@
-import sys
 import os
 import sqlite3
+import sys
 import pandas as pd
 
-DB_PATH = "performance_tracker.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "performance_tracker.db")
+
 
 def migrate_model_groups(file_path):
     if not os.path.exists(file_path):
@@ -19,8 +21,7 @@ def migrate_model_groups(file_path):
         return
 
     cols = {str(c).strip().lower(): c for c in df.columns}
-    
-    # Detect Model ID and Group columns
+
     model_col = cols.get("model id", cols.get("model_id", cols.get("model", None)))
     group_col = cols.get("group", cols.get("segment", cols.get("business group", None)))
 
@@ -30,7 +31,6 @@ def migrate_model_groups(file_path):
         print("Please ensure Column A has 'Model ID' and Column B has 'Group'.")
         return
 
-    # Clean and filter
     df = df.dropna(subset=[model_col, group_col])
     df["clean_model"] = df[model_col].astype(str).str.strip().str.upper()
     df["clean_group"] = df[group_col].astype(str).str.strip()
@@ -44,31 +44,33 @@ def migrate_model_groups(file_path):
     print(f"🔍 Found {total_rows} total rows ({unique_models} unique Model IDs).")
     print(f"🏷️  Detected Groups: {unique_groups}")
 
-    # Database connection & schema
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        cur = conn.cursor()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS model_groups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        model_id TEXT UNIQUE NOT NULL,
-        group_name TEXT NOT NULL
-    );
-    """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_model_groups_model ON model_groups(model_id);")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS model_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_id TEXT UNIQUE NOT NULL,
+            group_name TEXT NOT NULL
+        );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_model_groups_model ON model_groups(model_id);")
 
-    records = [(r["clean_model"], r["clean_group"]) for _, r in df.drop_duplicates(subset=["clean_model"]).iterrows()]
+        records = [(r["clean_model"], r["clean_group"]) for _, r in df.drop_duplicates(subset=["clean_model"]).iterrows()]
 
-    cur.executemany("""
-        INSERT INTO model_groups (model_id, group_name)
-        VALUES (?, ?)
-        ON CONFLICT(model_id) DO UPDATE SET group_name = excluded.group_name
-    """, records)
+        cur.executemany("""
+            INSERT INTO model_groups (model_id, group_name)
+            VALUES (?, ?)
+            ON CONFLICT(model_id) DO UPDATE SET group_name = excluded.group_name
+        """, records)
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
     print(f"\n✅ Migration successful! Stored {len(records)} model mappings in SQLite database '{DB_PATH}'.\n")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

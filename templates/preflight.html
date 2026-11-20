@@ -11,6 +11,10 @@
             <span class="badge bg-warning text-dark px-3 py-2 fs-6">Pending Confirmation</span>
         </div>
 
+        <div class="alert alert-info py-2 small mb-4">
+            <strong>ℹ️ Overwrite Notice:</strong> Committing will replace existing database records for every month present in the uploaded file(s).
+        </div>
+
         <!-- 1. CALIBRATIONS INSPECTION CARD -->
         {% if cal_summary %}
         <div class="card shadow-sm mb-4 border-0">
@@ -52,10 +56,14 @@
                     </div>
                 </div>
 
-                <!-- UNMAPPED WARNING -->
                 {% if cal_summary.unmapped_techs %}
                 <div class="alert alert-danger py-2 mb-0">
-                    <strong>⚠️ Unmapped Technicians Detected:</strong>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <strong>⚠️ Unmapped Technicians Detected:</strong>
+                        <a href="/team" target="_blank" class="btn btn-outline-danger btn-xs fw-bold">
+                            + Open Team Roster (New Tab)
+                        </a>
+                    </div>
                     <p class="small mb-2">These users are not in your team roster and not muted. Their units will be skipped unless muted or added to the roster.</p>
                     <div class="d-flex flex-wrap gap-2">
                         {% for u in cal_summary.unmapped_techs %}
@@ -160,12 +168,20 @@
             <a href="/upload/cancel" class="btn btn-outline-secondary px-4 fw-bold">
                 ❌ Cancel & Discard
             </a>
-            <form method="POST" action="/upload/confirm" class="mb-0">
-                <button type="submit" class="btn btn-success px-5 fw-bold shadow-sm">
+            <form method="POST" action="/upload/confirm" class="mb-0" id="confirmUploadForm">
+                <button type="submit" id="confirmCommitBtn" class="btn btn-success px-5 fw-bold shadow-sm">
                     ✅ Confirm & Commit to Database
                 </button>
             </form>
         </div>
     </div>
 </div>
+
+<script>
+    document.getElementById('confirmUploadForm').addEventListener('submit', function () {
+        const btn = document.getElementById('confirmCommitBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Committing to database...';
+    });
+</script>
 {% endblock %}

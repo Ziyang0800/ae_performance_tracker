@@ -136,7 +136,6 @@
 <!-- 2. MIDDLE EXECUTIVE TREND CHARTS: P.I. (NO TARGET) & QUALITY/REJECTIONS  -->
 <!-- ========================================================================= -->
 <div class="row g-3 mb-4">
-    <!-- Chart A: Monthly Lab Productivity (P.I.) Trend (No Target Reference) -->
     <div class="col-lg-6">
         <div class="card shadow-sm h-100 p-3 bg-white border-0">
             <div class="d-flex justify-content-between align-items-center mb-1">
@@ -152,7 +151,6 @@
         </div>
     </div>
 
-    <!-- Chart B: Monthly Quality Index & Outgoing Defects Trend -->
     <div class="col-lg-6">
         <div class="card shadow-sm h-100 p-3 bg-white border-0">
             <div class="d-flex justify-content-between align-items-center mb-1">
@@ -171,9 +169,6 @@
 
 <!-- ========================================================================= -->
 <!-- 3. QUARTERLY SEGMENT GROUP PERFORMANCE                                    -->
-<!-- ========================================================================= -->
-<!-- ========================================================================= -->
-<!-- 2. QUARTERLY SEGMENT GROUP PERFORMANCE                                    -->
 <!-- ========================================================================= -->
 <div class="card shadow-sm p-4 bg-white border-0 mb-4">
     {% if unmapped_models_in_quarter %}
@@ -195,7 +190,6 @@
     </div>
     {% endif %}
 
-    <!-- ONLY ONE TOOLBAR (CLEAN & UNIQUE) -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h5 class="fw-bold text-dark mb-0">Quarterly Segment Group Performance</h5>
@@ -222,8 +216,6 @@
         </div>
     </div>
 
-
-    <!-- 4 Group Overview Cards -->
     <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-4">
         {% for g in quarterly_group_data %}
         <div class="col">
@@ -236,7 +228,6 @@
                     Stations: {{ g.supporting_stations }}
                 </small>
 
-                <!-- Monthly Output -->
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <small class="text-secondary fw-semibold">Avg Monthly Output:</small>
                     <span class="badge bg-white text-primary border">
@@ -244,7 +235,6 @@
                     </span>
                 </div>
 
-                <!-- Quarterly P.I. + QoQ -->
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <small class="text-secondary fw-semibold">Quarterly P.I.:</small>
                     <div>
@@ -255,7 +245,6 @@
                     </div>
                 </div>
 
-                <!-- Weighted TAT + QoQ -->
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <small class="text-secondary fw-semibold">Weighted TAT:</small>
                     <div>
@@ -266,7 +255,6 @@
                     </div>
                 </div>
 
-                <!-- Quality Index + QoQ Rejections -->
                 <div class="d-flex justify-content-between align-items-center">
                     <small class="text-secondary fw-semibold">Quality Index:</small>
                     <div>
@@ -281,7 +269,6 @@
         {% endfor %}
     </div>
 
-    <!-- Detailed Comparison Table with OVERALL Row -->
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0 text-center" style="font-size: 0.83rem;">
             <thead class="table-light">
@@ -324,7 +311,6 @@
                     </td>
                     <td class="fw-bold text-secondary">{{ g.errors }}</td>
                     <td>
-                        <!-- Inverse color for defects: negative delta is green! -->
                         <span class="badge {{ 'bg-success-subtle text-success border border-success' if g.qoq_err_val < 0 else ('bg-danger-subtle text-danger border border-danger' if g.qoq_err_val > 0 else 'bg-secondary-subtle text-secondary border') }}">
                             {{ g.qoq_err_str }}
                         </span>
@@ -337,7 +323,6 @@
                 </tr>
                 {% endfor %}
 
-                <!-- SUMMARY ROW: OVERALL -->
                 <tr class="table-overall-row">
                     <td class="text-start text-dark fw-bold">{{ overall_row.group_name }}</td>
                     <td class="text-start text-secondary">{{ overall_row.supporting_stations }}</td>
@@ -376,7 +361,6 @@
     </div>
 </div>
 
-<!-- MODAL: ASSIGN UNMAPPED MODELS -->
 {% if unmapped_models_in_quarter %}
 <div class="modal fade" id="mapModelsModal" tabindex="-1" aria-labelledby="mapModelsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
@@ -430,15 +414,20 @@
 </div>
 {% endif %}
 
-<!-- SCRIPTS & CHART INITIALIZERS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     const rawTimeline = {{ timeline_json | safe }};
     const fourData = {{ four_panel_data | tojson | safe }};
     const totalPeriods = rawTimeline.length;
     let chartInstances = {};
+    let labPiChart = null;
+    let labQualityChart = null;
 
-    // 1. TIERED AXIS (MONTH / FISCAL QUARTER / FY)
+    const mLabels = {{ monthly_labels | safe }};
+    const mPiVols = {{ monthly_pi_vols | safe }};
+    const mPis = {{ monthly_pis | safe }};
+    const mQuals = {{ monthly_qualities | safe }};
+    const mErrs = {{ monthly_errors | safe }};
+
     function renderTieredAxis(startIndex, endIndex) {
         const monthsRow = document.getElementById('timelineMonthsRow');
         const quartersRow = document.getElementById('timelineQuartersRow');
@@ -493,7 +482,6 @@
         });
     }
 
-    // 2. COMPACT 4-PANEL SPOTFIRE CHARTS
     function initFourPanels() {
         Object.keys(fourData).forEach(catKey => {
             const ctx = document.getElementById('chart_' + catKey);
@@ -584,8 +572,22 @@
             chart.data.labels = rawTimeline.slice(startIndex, endIndex).map(t => t.month_name);
             chart.data.datasets[0].data = fourData[catKey].volumes.slice(startIndex, endIndex);
             chart.data.datasets[1].data = fourData[catKey].mos_percentages.slice(startIndex, endIndex);
-            chart.update();
+            chart.update('none');
         });
+
+        if (mLabels.length === totalPeriods && labPiChart && labQualityChart) {
+            const slicedLabels = mLabels.slice(startIndex, endIndex);
+            labPiChart.data.labels = slicedLabels;
+            labPiChart.data.datasets[0].data = mPiVols.slice(startIndex, endIndex);
+            labPiChart.data.datasets[1].data = mPis.slice(startIndex, endIndex);
+            labPiChart.update('none');
+
+            labQualityChart.data.labels = slicedLabels;
+            labQualityChart.data.datasets[0].data = mErrs.slice(startIndex, endIndex);
+            labQualityChart.data.datasets[1].data = mQuals.slice(startIndex, endIndex);
+            labQualityChart.data.datasets[2].data = slicedLabels.map(() => 98.0);
+            labQualityChart.update('none');
+        }
 
         renderTieredAxis(startIndex, endIndex);
     }
@@ -593,16 +595,8 @@
     slider.addEventListener('input', updateTimelineView);
     windowSelect.addEventListener('change', () => { slider.value = 0; updateTimelineView(); });
 
-    // 3. MIDDLE TREND CHARTS (P.I. NO TARGET & QUALITY TREND)
-    const mLabels = {{ monthly_labels | safe }};
-    const mPiVols = {{ monthly_pi_vols | safe }};
-    const mPis = {{ monthly_pis | safe }};
-    const mQuals = {{ monthly_qualities | safe }};
-    const mErrs = {{ monthly_errors | safe }};
-
     function initMiddleCharts() {
-        // Chart A: Lab P.I. (No Target Reference Line)
-        new Chart(document.getElementById('labPiTrendChart'), {
+        labPiChart = new Chart(document.getElementById('labPiTrendChart'), {
             data: {
                 labels: mLabels,
                 datasets: [
@@ -641,8 +635,7 @@
             }
         });
 
-        // Chart B: Quality % & Errors
-        new Chart(document.getElementById('labQualityTrendChart'), {
+        labQualityChart = new Chart(document.getElementById('labQualityTrendChart'), {
             data: {
                 labels: mLabels,
                 datasets: [
@@ -695,8 +688,8 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-        initFourPanels();
         initMiddleCharts();
+        initFourPanels();
     });
 </script>
 {% endif %}
