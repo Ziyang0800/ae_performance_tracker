@@ -12,12 +12,12 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.dml import MSO_LINE
-from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_DATA_LABEL_POSITION, XL_MARKER_STYLE
+from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_DATA_LABEL_POSITION
 from pptx.chart.data import CategoryChartData
 from pptx.oxml import parse_xml
 
 # =============================================================================
-# COLOR PALETTE DEFINITIONS
+# COLOR PALETTE DEFINITIONS (ORIGINAL PALETTE PRESERVED)
 # =============================================================================
 BG_COLOR = RGBColor(43, 45, 47)             # Dark Charcoal #2B2D2F
 PURE_BLACK = RGBColor(0, 0, 0)              # Pure Black #000000
@@ -93,8 +93,38 @@ TAT_CATEGORIES = [
     {"key": "PSC_INT", "label": "PSC_INT", "weight": 15.0}
 ]
 
+CORE_GROUPS = [
+    "CSG",
+    "EiSG+Scope",
+    "STDS LAB",
+    "Legacy+Modular+PMPS (A)+MMA+ Others",
+]
+
+
+def canonicalize_group_name(raw):
+    if not raw:
+        return None
+    s = re.sub(r'\s+', ' ', str(raw).strip()).upper()
+    if s == "CSG":
+        return "CSG"
+    if "EISG" in s or "SCOPE" in s:
+        return "EiSG+Scope"
+    if "STD" in s:
+        return "STDS LAB"
+    if "LEGACY" in s or "MODULAR" in s or "PMPS" in s or "MMA" in s:
+        return "Legacy+Modular+PMPS (A)+MMA+ Others"
+    if "MEC" in s:
+        return "MEC Lab"
+    return str(raw).strip()
+
+
 def normalize_str(s):
-    return re.sub(r'\s+', ' ', str(s).strip().replace('"', '')).lower()
+    return re.sub(r'\s+', ' ', str(s or "").strip().replace('"', '')).lower()
+
+
+def clean_username(u):
+    return str(u or "").strip().lower()
+
 
 def get_keysight_fiscal_info(year, month):
     if month in [11, 12]:
@@ -109,6 +139,7 @@ def get_keysight_fiscal_info(year, month):
         q, fy = "Q4", year
     return q, fy, f"{q} FY'{str(fy)[-2:]}"
 
+
 def get_image_path(filename):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     exact_path = os.path.join(base_dir, filename)
@@ -122,6 +153,7 @@ def get_image_path(filename):
         pass
     return None
 
+
 def set_slide_background(slide, prs, image_filename, fallback_rgb):
     resolved_path = get_image_path(image_filename)
     if resolved_path and os.path.exists(resolved_path):
@@ -132,18 +164,25 @@ def set_slide_background(slide, prs, image_filename, fallback_rgb):
         bg.fill.fore_color.rgb = fallback_rgb
         bg.line.fill.background()
 
+
 def is_working_day_status(raw_status):
-    if not raw_status: return False
+    if not raw_status:
+        return False
     s = str(raw_status).strip().upper()
-    if s in ["NW", "AL", "MC", "PH", "PL", "CP", "UPL", "ABS", "RES", "-", ""]: return False
-    if "|" in s: s = s.split("|")[0].strip()
-    try: return float(s) > 0
-    except ValueError: return False
+    if s in ["NW", "AL", "MC", "PH", "PL", "CP", "UPL", "ABS", "RES", "-", ""]:
+        return False
+    if "|" in s:
+        s = s.split("|")[0].strip()
+    try:
+        return float(s) > 0
+    except ValueError:
+        return False
+
 
 def format_cell_native(cell, fill_rgb, text, font_size=8, bold=False, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER, margin_left=None):
     cell.fill.solid()
     cell.fill.fore_color.rgb = fill_rgb
-    
+
     if margin_left is not None:
         cell.margin_left = Inches(margin_left) if isinstance(margin_left, (int, float)) else margin_left
     elif align == PP_ALIGN.LEFT:
@@ -163,23 +202,30 @@ def format_cell_native(cell, fill_rgb, text, font_size=8, bold=False, text_color
         p.font.bold = bold
         p.font.color.rgb = text_color
 
+
 def set_native_table_grid_style(table):
     tblPr = table._tbl.tblPr
     style_elem = tblPr.find('{http://schemas.openxmlformats.org/drawingml/2006/main}tableStyleId')
     if style_elem is not None:
         style_elem.text = '{21E4AEA4-E5BE-42F6-9CE4-175374077B40}'
 
+
 def format_delta(current_val, prev_val, is_float=False):
-    if prev_val is None or prev_val == 0: return "(-)"
+    if prev_val is None or prev_val == 0:
+        return "(-)"
     diff = round(current_val - prev_val, 1) if is_float else int(current_val - prev_val)
     return f"(+{diff:.1f})" if (is_float and diff > 0) else (f"(+{diff})" if diff > 0 else (f"({diff:.1f})" if is_float else f"({diff})"))
 
+
 def parse_iso_date(date_val):
-    if pd.isna(date_val) or not date_val: return None
+    if pd.isna(date_val) or not date_val:
+        return None
     try:
         ts = pd.to_datetime(str(date_val).strip(), errors="coerce")
         return None if pd.isna(ts) else ts.date()
-    except Exception: return None
+    except Exception:
+        return None
+
 
 def resolve_engineer_station(conn, engineer_id, fallback_station_id, rep_year, rep_month):
     row = conn.execute("""
@@ -194,7 +240,7 @@ def resolve_engineer_station(conn, engineer_id, fallback_station_id, rep_year, r
 
     if row:
         return row["station_id"], row["station_name"], row["sort_order"], row["target_pi"], row["is_active"]
-    
+
     fb = conn.execute("SELECT s.id as station_id, s.name as station_name, s.sort_order, s.target_pi, s.is_active FROM stations s WHERE s.id = ?", (fallback_station_id,)).fetchone()
     if fb:
         return fb["station_id"], fb["station_name"], fb["sort_order"], fb["target_pi"], fb["is_active"]
@@ -202,20 +248,18 @@ def resolve_engineer_station(conn, engineer_id, fallback_station_id, rep_year, r
 
 
 def compute_month_dept_avg_pi(conn, y, m):
-    """Computes exact Department Average Station P.I. (Matches Dashboard and Slide 7)."""
+    """Computes exact Department Average Station P.I. (Matches Dashboard and Summary Slide)."""
     stations = conn.execute(
         "SELECT id, name FROM stations WHERE is_active = 1 AND name NOT LIKE '%MECH%' ORDER BY sort_order ASC, name ASC").fetchall()
     all_engs = conn.execute(
         "SELECT id, formal_name, username, station_id, shift_hours, activation_date, resigned_date FROM engineers WHERE track_performance = 1").fetchall()
-    muted_users = set(
-        [r[0].strip().lower() for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+    muted_users = {clean_username(r[0]) for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()}
 
     _, num_d = calendar.monthrange(y, m)
     m_start, m_end = date(y, m, 1), date(y, m, num_d)
 
-    df_cals = pd.read_sql("SELECT cal_by FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[y, m])
-    df_att = pd.read_sql("SELECT formal_name, capped_hours FROM attendance WHERE year = ? AND month = ?", conn,
-                         params=[y, m])
+    df_cals = pd.read_sql("SELECT LOWER(TRIM(cal_by)) as cal_by_clean FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[y, m])
+    df_att = pd.read_sql("SELECT formal_name, capped_hours FROM attendance WHERE year = ? AND month = ?", conn, params=[y, m])
     if not df_att.empty:
         df_att["clean_name"] = df_att["formal_name"].apply(normalize_str)
 
@@ -224,10 +268,15 @@ def compute_month_dept_avg_pi(conn, y, m):
         st_id = st["id"]
         st_aes = []
         for e in all_engs:
-            if e["username"].strip().lower() in muted_users: continue
+            u_clean = clean_username(e["username"])
+            if not u_clean or u_clean in muted_users:
+                continue
             act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
-            if not act_d or act_d > m_end: continue
-            if res_d and res_d < m_start: continue
+            if not act_d or act_d > m_end:
+                continue
+            units_done = len(df_cals[df_cals["cal_by_clean"] == u_clean]) if not df_cals.empty else 0
+            if res_d and res_d < m_start and units_done == 0:
+                continue
             assigned_st_id, _, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], y, m)
             if st_active and assigned_st_id == st_id:
                 st_aes.append(e)
@@ -238,9 +287,9 @@ def compute_month_dept_avg_pi(conn, y, m):
         st_units = 0
         st_days = 0.0
         for e in st_aes:
-            u_clean = e["username"].strip().lower()
+            u_clean = clean_username(e["username"])
             if not df_cals.empty:
-                st_units += len(df_cals[df_cals["cal_by"].astype(str).str.strip().str.lower() == u_clean])
+                st_units += len(df_cals[df_cals["cal_by_clean"] == u_clean])
             fn_clean = normalize_str(e["formal_name"])
             shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
             if not df_att.empty:
@@ -248,10 +297,10 @@ def compute_month_dept_avg_pi(conn, y, m):
                 st_days += (hrs / shift)
 
         if st_days > 0:
-            st_pi = round(st_units / st_days, 1)
-            station_pis.append(st_pi)
+            station_pis.append(round(st_units / st_days, 1))
 
     return round(sum(station_pis) / len(station_pis), 1) if station_pis else 0.0
+
 
 def add_kpi_scorecard_slide(prs, conn, year, month):
     blank_layout = prs.slide_layouts[6]
@@ -268,7 +317,8 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
     for _ in range(3):
         rolling_3.append((cy, cm))
         cm -= 1
-        if cm == 0: cm, cy = 12, cy - 1
+        if cm == 0:
+            cm, cy = 12, cy - 1
     rolling_3.reverse()
 
     month_cols = [f"{calendar.month_abbr[m_num]}'{str(y_num)[-2:]}" for y_num, m_num in rolling_3]
@@ -277,7 +327,7 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
     target_header_label = kpi_rows[0]["target_label"] if kpi_rows else "Q2 FY'26 Target"
 
     all_engineers = conn.execute("SELECT id, formal_name, username, station_id, shift_hours, activation_date, resigned_date FROM engineers WHERE track_performance = 1").fetchall()
-    muted_users = set([r[0].strip().lower() for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+    muted_users = {clean_username(r[0]) for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()}
 
     actual_data = {m_lbl: {} for m_lbl in month_cols}
 
@@ -286,25 +336,23 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
         m_start, m_end = date(y_num, m_num, 1), date(y_num, m_num, m_days)
 
         active_ae_usernames = []
-        station_monthly_data = {}
-
         for e in all_engineers:
-            u_clean = str(e["username"]).strip().lower()
-            if u_clean in muted_users: continue
+            u_clean = clean_username(e["username"])
+            if not u_clean or u_clean in muted_users:
+                continue
             act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
-            if not act_d or act_d > m_end: continue
-            if res_d and res_d < m_start: continue
+            if not act_d or act_d > m_end:
+                continue
+            if res_d and res_d < m_start:
+                continue
 
-            st_id, st_name, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], y_num, m_num)
-            if not st_active: continue
-
-            active_ae_usernames.append(e["username"])
-            if st_name not in station_monthly_data:
-                station_monthly_data[st_name] = {"units": 0, "days": 0.0}
+            _, _, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], y_num, m_num)
+            if st_active:
+                active_ae_usernames.append(u_clean)
 
         if active_ae_usernames:
             placeholders = ",".join(["?"] * len(active_ae_usernames))
-            q_cals = f"SELECT cal_by, category, mos, sender_dept FROM calibrations WHERE cal_year = ? AND cal_month = ? AND cal_by IN ({placeholders})"
+            q_cals = f"SELECT cal_by, category, mos, sender_dept FROM calibrations WHERE cal_year = ? AND cal_month = ? AND LOWER(TRIM(cal_by)) IN ({placeholders})"
             df_c = pd.read_sql(q_cals, conn, params=[y_num, m_num] + active_ae_usernames)
         else:
             df_c = pd.DataFrame()
@@ -314,51 +362,21 @@ def add_kpi_scorecard_slide(prs, conn, year, month):
         if not df_c.empty:
             df_ete = df_c[df_c["category"].astype(str).str.strip().str.upper() == "CRD_ETE"]
             actual_data[m_lbl]["ete_crd_tat"] = round(((df_ete["mos"] == 1).sum() / len(df_ete)) * 100.0) if len(df_ete) > 0 else 100.0
-        else:
-            actual_data[m_lbl]["ete_crd_tat"] = 100.0
 
-        if not df_c.empty:
             df_new = df_c[df_c["category"].astype(str).str.strip().str.upper() == "CRD_NEW"]
             mask_krs = df_new["sender_dept"].astype(str).str.upper().str.contains(r"AX63/RSD|AX63/RSD/AC", regex=True)
             df_trade, df_krs = df_new[~mask_krs], df_new[mask_krs]
-            actual_data[m_lbl]["trade_unit"] = round(((df_trade["mos"] == 1).sum() / len(df_trade)) * 100.0) if len(df_trade) > 0 else 92.0
-            actual_data[m_lbl]["krs_unit"] = round(((df_krs["mos"] == 1).sum() / len(df_krs)) * 100.0) if len(df_krs) > 0 else 97.0
-        else:
-            actual_data[m_lbl]["trade_unit"] = 92.0
-            actual_data[m_lbl]["krs_unit"] = 97.0
+            actual_data[m_lbl]["trade_unit"] = round(((df_trade["mos"] == 1).sum() / len(df_trade)) * 100.0) if len(df_trade) > 0 else 100.0
+            actual_data[m_lbl]["krs_unit"] = round(((df_krs["mos"] == 1).sum() / len(df_krs)) * 100.0) if len(df_krs) > 0 else 100.0
 
-        if not df_c.empty:
             df_psc_ext = df_c[df_c["category"].astype(str).str.strip().str.upper() == "PSC_EXT"]
             actual_data[m_lbl]["kgso_ext"] = round(((df_psc_ext["mos"] == 1).sum() / len(df_psc_ext)) * 100.0) if len(df_psc_ext) > 0 else 100.0
         else:
+            actual_data[m_lbl]["ete_crd_tat"] = 100.0
+            actual_data[m_lbl]["trade_unit"] = 100.0
+            actual_data[m_lbl]["krs_unit"] = 100.0
             actual_data[m_lbl]["kgso_ext"] = 100.0
 
-        # P.I. ALIGNMENT FIX: Exactly matching the Dashboard and P.I. slide (Average of Station P.I.s)
-        df_att_month = pd.read_sql("SELECT formal_name, capped_hours, year, month FROM attendance WHERE year = ? AND month = ?", conn, params=[y_num, m_num])
-        if not df_att_month.empty:
-            df_att_month["clean_name"] = df_att_month["formal_name"].apply(normalize_str)
-
-        for e in all_engineers:
-            st_id, st_name, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], y_num, m_num)
-            if not st_active or st_name not in station_monthly_data: continue
-            
-            u_clean = e["username"].strip().lower()
-            if not df_c.empty:
-                station_monthly_data[st_name]["units"] += len(df_c[df_c["cal_by"].astype(str).str.strip().str.lower() == u_clean])
-            
-            fn_norm = normalize_str(e["formal_name"])
-            shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
-            if not df_att_month.empty:
-                hrs = df_att_month[(df_att_month["clean_name"] == fn_norm) & (df_att_month["year"] == y_num) & (df_att_month["month"] == m_num)]["capped_hours"].sum()
-                station_monthly_data[st_name]["days"] += (hrs / shift)
-
-        station_pis = []
-        for s_info in station_monthly_data.values():
-            if s_info["days"] > 0:
-                # Round each station to 1 decimal place first (matches Dashboard exactly)
-                station_pis.append(round(s_info["units"] / s_info["days"], 1))
-
-        dept_avg_station_pi = round(sum(station_pis) / len(station_pis), 1) if station_pis else 3.2
         actual_data[m_lbl]["pi"] = compute_month_dept_avg_pi(conn, y_num, m_num)
 
     t_shape = slide.shapes.add_table(8, 5, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.6))
@@ -414,22 +432,34 @@ def generate_monthly_deck(conn, year, month):
 
     stations = conn.execute("SELECT id, name, sort_order, target_pi FROM stations WHERE is_active = 1 AND name NOT LIKE '%MECH%' ORDER BY sort_order ASC, name ASC").fetchall()
 
-    df_cal_cur = pd.read_sql("SELECT cal_by, cal_day FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[year, month])
-    df_cal_prev = pd.read_sql("SELECT cal_by, COUNT(*) as units FROM calibrations WHERE cal_year = ? AND cal_month = ? GROUP BY cal_by", conn, params=[prev_y, prev_m])
-    prev_user_cal_map = dict(zip(df_cal_prev["cal_by"], df_cal_prev["units"])) if not df_cal_prev.empty else {}
+    df_cal_cur = pd.read_sql("SELECT LOWER(TRIM(cal_by)) as cal_by_clean, cal_day FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[year, month])
+    df_cal_prev = pd.read_sql("SELECT LOWER(TRIM(cal_by)) as cal_by_clean, COUNT(*) as units FROM calibrations WHERE cal_year = ? AND cal_month = ? GROUP BY LOWER(TRIM(cal_by))", conn, params=[prev_y, prev_m])
+    prev_user_cal_map = dict(zip(df_cal_prev["cal_by_clean"], df_cal_prev["units"])) if not df_cal_prev.empty else {}
 
     df_att_cur = pd.read_sql("SELECT formal_name, day, raw_status, capped_hours FROM attendance WHERE year = ? AND month = ?", conn, params=[year, month])
-    if not df_att_cur.empty: df_att_cur["clean_name"] = df_att_cur["formal_name"].str.strip().str.lower()
+    if not df_att_cur.empty:
+        df_att_cur["clean_name"] = df_att_cur["formal_name"].apply(normalize_str)
 
     df_att_prev = pd.read_sql("SELECT formal_name, SUM(capped_hours) as tot_hrs FROM attendance WHERE year = ? AND month = ? GROUP BY formal_name", conn, params=[prev_y, prev_m])
-    prev_user_hrs_map = dict(zip(df_att_prev["formal_name"].str.strip().str.lower(), df_att_prev["tot_hrs"])) if not df_att_prev.empty else {}
+    prev_user_hrs_map = {}
+    if not df_att_prev.empty:
+        for _, row in df_att_prev.iterrows():
+            k = normalize_str(row["formal_name"])
+            prev_user_hrs_map[k] = prev_user_hrs_map.get(k, 0.0) + float(row["tot_hrs"] or 0.0)
 
     all_engineers = conn.execute("SELECT id, formal_name, username, display_name, station_id, shift_hours, activation_date, resigned_date, is_active, track_performance FROM engineers ORDER BY formal_name").fetchall()
-    user_cur_units_map = df_cal_cur["cal_by"].value_counts().to_dict() if not df_cal_cur.empty else {}
-    username_to_name = {e["username"].strip().lower(): (e["display_name"] or e["formal_name"].split()[0]) for e in all_engineers}
+    user_cur_units_map = df_cal_cur["cal_by_clean"].value_counts().to_dict() if not df_cal_cur.empty else {}
+    username_to_name = {
+        clean_username(e["username"]): (e["display_name"] or e["formal_name"].split()[0])
+        for e in all_engineers if clean_username(e["username"])
+    }
 
-    roster_users = set([e["username"].strip().lower() for e in all_engineers if e["is_active"] and e["track_performance"]])
-    muted_users = set([r[0].strip().lower() for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+    roster_users = {
+        clean_username(e["username"])
+        for e in all_engineers
+        if e["track_performance"] and clean_username(e["username"])
+    }
+    muted_users = {clean_username(r[0]) for r in conn.execute("SELECT username FROM ignored_technicians").fetchall()}
 
     # SLIDE 1: COVER
     slide1 = prs.slides.add_slide(blank_layout)
@@ -488,7 +518,8 @@ def generate_monthly_deck(conn, year, month):
     for _ in range(5):
         rolling_5.append((cy, cm))
         cm -= 1
-        if cm == 0: cm, cy = 12, cy - 1
+        if cm == 0:
+            cm, cy = 12, cy - 1
     rolling_5.reverse()
 
     all_staff_hc = conn.execute("SELECT formal_name, display_name, joined_date, activation_date, resigned_date FROM engineers").fetchall()
@@ -512,9 +543,12 @@ def generate_monthly_deck(conn, year, month):
             start_d = parse_iso_date(stf["joined_date"]) or parse_iso_date(stf["activation_date"])
             res_d = parse_iso_date(stf["resigned_date"])
 
-            if (not start_d or start_d <= m_end) and not (res_d and res_d < m_start): actual_hc += 1
-            if start_d and m_start <= start_d <= m_end: new_hires.append(name_disp)
-            if res_d and m_start <= res_d <= m_end: resignees.append(name_disp)
+            if (not start_d or start_d <= m_end) and not (res_d and res_d < m_start):
+                actual_hc += 1
+            if start_d and m_start <= start_d <= m_end:
+                new_hires.append(name_disp)
+            if res_d and m_start <= res_d <= m_end:
+                resignees.append(name_disp)
 
         shortfall = target_headcount - actual_hc
         shortfall_str = str(shortfall) if shortfall > 0 else "-"
@@ -546,17 +580,25 @@ def generate_monthly_deck(conn, year, month):
 
     # SLIDES 6+: STATIONS
     for st in stations:
-        st_id, st_name = st["id"], st["name"]
+        st_name = st["name"]
         st_engineers = []
         for e in all_engineers:
-            if not e["track_performance"]: continue
-            u, act_d, res_d, u_count = e["username"], parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"]), user_cur_units_map.get(e["username"], 0)
-            if not act_d or act_d > month_end: continue
-            if res_d and res_d < month_start and u_count == 0: continue
-            assigned_st_id, assigned_st_name, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], year, month)
-            if st_active and assigned_st_name == st_name: st_engineers.append(e)
+            if not e["track_performance"]:
+                continue
+            u_clean = clean_username(e["username"])
+            if not u_clean or u_clean in muted_users:
+                continue
+            act_d, res_d, u_count = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"]), user_cur_units_map.get(u_clean, 0)
+            if not act_d or act_d > month_end:
+                continue
+            if res_d and res_d < month_start and u_count == 0:
+                continue
+            _, assigned_st_name, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], year, month)
+            if st_active and assigned_st_name == st_name:
+                st_engineers.append(e)
 
-        if not st_engineers: continue
+        if not st_engineers:
+            continue
 
         slide = prs.slides.add_slide(blank_layout)
         set_slide_background(slide, prs, "Grey Wave.png", BG_COLOR)
@@ -576,8 +618,12 @@ def generate_monthly_deck(conn, year, month):
         ae_contribution, ae_daily_matrix = {}, {}
 
         for e in st_engineers:
-            disp_name, u, fn_clean, shift = e["display_name"] or e["formal_name"].split()[0], e["username"], e["formal_name"].strip().lower(), e["shift_hours"]
-            e_cals = df_cal_cur[df_cal_cur["cal_by"] == u] if not df_cal_cur.empty else pd.DataFrame()
+            disp_name = e["display_name"] or e["formal_name"].split()[0]
+            u_clean = clean_username(e["username"])
+            fn_clean = normalize_str(e["formal_name"])
+            shift = e["shift_hours"]
+
+            e_cals = df_cal_cur[df_cal_cur["cal_by_clean"] == u_clean] if not df_cal_cur.empty else pd.DataFrame()
             u_count = len(e_cals)
             st_cur_units += u_count
             ae_contribution[disp_name] = u_count
@@ -595,30 +641,43 @@ def generate_monthly_deck(conn, year, month):
             adj_out_list, carry = list(raw_output_list), 0
             for i in range(num_days):
                 if not working_flags[i]:
-                    if adj_out_list[i] > 0: carry += adj_out_list[i]; adj_out_list[i] = 0
+                    if adj_out_list[i] > 0:
+                        carry += adj_out_list[i]
+                        adj_out_list[i] = 0
                 else:
-                    if carry > 0: adj_out_list[i] += carry; carry = 0
+                    if carry > 0:
+                        adj_out_list[i] += carry
+                        carry = 0
             if carry > 0:
                 for i in range(num_days - 1, -1, -1):
-                    if working_flags[i]: adj_out_list[i] += carry; break
+                    if working_flags[i]:
+                        adj_out_list[i] += carry
+                        break
 
             ae_daily_matrix[disp_name] = {"hours": raw_hours_list, "output": adj_out_list, "is_working": working_flags}
-            prev_u, prev_h = prev_user_cal_map.get(u, 0), prev_user_hrs_map.get(fn_clean, 0.0)
+            prev_u, prev_h = prev_user_cal_map.get(u_clean, 0), prev_user_hrs_map.get(fn_clean, 0.0)
             st_prev_units += prev_u
             st_prev_days += (prev_h / shift) if shift > 0 else 0.0
 
         st_pi = round(st_cur_units / st_cur_days, 1) if st_cur_days > 0 else 0.0
         st_prev_pi = round(st_prev_units / st_prev_days, 1) if st_prev_days > 0 else 0.0
 
-        summary_slide_data.append({"name": st_name, "units": st_cur_units, "units_delta": format_delta(st_cur_units, st_prev_units, False), "pi": st_pi, "pi_delta": format_delta(st_pi, st_prev_pi, True), "prev_pi": st_prev_pi, "prev_units": st_prev_units})
+        summary_slide_data.append({
+            "name": st_name, "units": st_cur_units,
+            "units_delta": format_delta(st_cur_units, st_prev_units, False),
+            "pi": st_pi, "pi_delta": format_delta(st_pi, st_prev_pi, True),
+            "prev_pi": st_prev_pi, "prev_units": st_prev_units
+        })
 
         rows_cnt, cols_cnt = 2 + (len(st_engineers) * 2), 2 + num_days
-        table_shape = slide.shapes.add_table(rows_cnt, cols_cnt, Inches(0.22), Inches(1.35), Inches(12.89), Inches(0.28 * 2 + 0.20 * (len(st_engineers) * 2)))
+        tbl_height = 0.28 * 2 + 0.20 * (len(st_engineers) * 2)
+        table_shape = slide.shapes.add_table(rows_cnt, cols_cnt, Inches(0.22), Inches(1.35), Inches(12.89), Inches(tbl_height))
         tbl = table_shape.table
         set_native_table_grid_style(tbl)
         tbl.columns[0].width, tbl.columns[1].width = Inches(1.10), Inches(0.85)
         day_w = int((Inches(12.89) - Inches(1.95)) / num_days)
-        for c in range(2, cols_cnt): tbl.columns[c].width = day_w
+        for c in range(2, cols_cnt):
+            tbl.columns[c].width = day_w
 
         c_day_master = tbl.cell(0, 0); c_day_master.merge(tbl.cell(0, 1))
         format_cell_native(c_day_master, TEAL_HEADER, "DAY", font_size=9, bold=True, text_color=TEXT_BLACK)
@@ -661,23 +720,26 @@ def generate_monthly_deck(conn, year, month):
                 format_cell_native(tbl.cell(curr_row + 1, d + 1), cell_bg, disp_val, font_size=8, bold=(is_work and out_val == 0), text_color=t_color)
             curr_row += 2
 
-        # -------------------------------------------------------------
+        # Prevent table-over-chart collision if a station has 5+ AEs
+        chart_top_val = max(3.61, 1.35 + tbl_height + 0.12)
+        left_h_val = max(2.40, 7.03 - chart_top_val)
+        pie_h_val = max(1.80, left_h_val - 0.60)
+
         # LEFT CHART: DAILY OUTPUT (STACKED COLUMN)
-        # -------------------------------------------------------------
-        c1_x, c1_y, c1_w, c1_h = Inches(0.22), Inches(3.61), Inches(6.80), Inches(3.41)
+        c1_x, c1_y, c1_w, c1_h = Inches(0.22), Inches(chart_top_val), Inches(6.80), Inches(left_h_val)
         card1 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, c1_x, c1_y, c1_w, c1_h)
         card1.fill.solid(); card1.fill.fore_color.rgb, card1.line.color.rgb = CONTAINER_BG, CARD_BORDER
 
         chart_data_bar = CategoryChartData()
         chart_data_bar.categories = [f"{d:02d}" for d in range(1, num_days + 1)]
-        for disp_name in ae_contribution: chart_data_bar.add_series(disp_name, ae_daily_matrix[disp_name]["output"])
+        for disp_name in ae_contribution:
+            chart_data_bar.add_series(disp_name, ae_daily_matrix[disp_name]["output"])
 
         ch_shape1 = slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED, c1_x + Inches(0.12), c1_y + Inches(0.12), c1_w - Inches(0.24), c1_h - Inches(0.24), chart_data_bar)
         bar_chart = ch_shape1.chart
         bar_chart.has_title = True; bar_chart.chart_title.text_frame.text = f"DAILY OUTPUT OF {st_name.upper()} STATION"
         bar_chart.chart_title.text_frame.paragraphs[0].font.name, bar_chart.chart_title.text_frame.paragraphs[0].font.size, bar_chart.chart_title.text_frame.paragraphs[0].font.bold = "Aptos", Pt(16), True
 
-        # RULE: Remove legend if station has only 1 AE!
         if len(st_engineers) <= 1:
             bar_chart.has_legend = False
         else:
@@ -687,7 +749,6 @@ def generate_monthly_deck(conn, year, month):
             bar_chart.legend.font.name = "Aptos"
             bar_chart.legend.font.size = Pt(8)
 
-        # Explicit Aptos 8pt on Category and Value Axes
         cat_axis = bar_chart.category_axis
         cat_axis.tick_labels.font.name = "Aptos"
         cat_axis.tick_labels.font.size = Pt(8)
@@ -704,10 +765,8 @@ def generate_monthly_deck(conn, year, month):
             series.format.fill.solid()
             series.format.fill.fore_color.rgb = CHART_SERIES_COLORS[s_idx % len(CHART_SERIES_COLORS)]
 
-        # -------------------------------------------------------------
-        # RIGHT CHART: CONTRIBUTION PIE (STRICT MATCHING COLORS)
-        # -------------------------------------------------------------
-        c2_x, c2_y, c2_w, c2_h = Inches(7.17), Inches(3.61), Inches(4.78), Inches(2.81)
+        # RIGHT CHART: CONTRIBUTION PIE
+        c2_x, c2_y, c2_w, c2_h = Inches(7.17), Inches(chart_top_val), Inches(4.78), Inches(pie_h_val)
         card2 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, c2_x, c2_y, c2_w, c2_h)
         card2.fill.solid(); card2.fill.fore_color.rgb, card2.line.color.rgb = CONTAINER_BG, CARD_BORDER
 
@@ -719,14 +778,13 @@ def generate_monthly_deck(conn, year, month):
         pie_chart.style = 1; pie_chart.has_title = True; pie_chart.chart_title.text_frame.text = "CONTRIBUTION"
         pie_chart.chart_title.text_frame.paragraphs[0].font.name, pie_chart.chart_title.text_frame.paragraphs[0].font.size, pie_chart.chart_title.text_frame.paragraphs[0].font.bold = "Aptos", Pt(16), True
         pie_chart.has_legend = False
-        
+
         plots = pie_chart.plots[0]
         plots.has_data_labels = True
         plots.data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
         plots.data_labels.show_category_name, plots.data_labels.show_percentage, plots.data_labels.show_value = True, True, False
         plots.data_labels.font.name, plots.data_labels.font.size = "Aptos", Pt(7)
 
-        # STRICT COLORING FOR PIE SLICES (1st Yellow, 2nd Blue, 3rd Green...)
         try:
             for s_idx, point in enumerate(plots.series[0].points):
                 point.format.fill.solid()
@@ -735,7 +793,7 @@ def generate_monthly_deck(conn, year, month):
             pass
 
         # MoM Pill Box
-        p_left, p_top, p_w, p_h = Inches(7.17), Inches(6.52), Inches(4.78), Inches(0.51)
+        p_left, p_top, p_w, p_h = Inches(7.17), Inches(chart_top_val + pie_h_val + 0.10), Inches(4.78), Inches(0.51)
         pill = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, p_left, p_top, p_w, p_h)
         pill.fill.solid(); pill.fill.fore_color.rgb, pill.line.color.rgb, pill.line.width = PILL_BG, PILL_BORDER, Pt(1.5)
         tf_p = pill.text_frame; tf_p.word_wrap, tf_p.vertical_anchor = True, MSO_ANCHOR.MIDDLE
@@ -762,7 +820,8 @@ def generate_monthly_deck(conn, year, month):
         set_native_table_grid_style(s_tbl)
         s_tbl.columns[0].width, s_tbl.columns[s_cols - 1].width = Inches(1.3), Inches(1.2)
         col_w = int((Inches(12.5) - Inches(2.5)) / max(num_st, 1))
-        for c in range(1, s_cols - 1): s_tbl.columns[c].width = col_w
+        for c in range(1, s_cols - 1):
+            s_tbl.columns[c].width = col_w
 
         format_cell_native(s_tbl.cell(0, 0), RUST_ORANGE, "STATION", font_size=12, bold=True, text_color=WHITE_TEXT)
         tot_units_all = sum(d["units"] for d in summary_slide_data)
@@ -786,11 +845,11 @@ def generate_monthly_deck(conn, year, month):
         format_cell_native(s_tbl.cell(2, 0), RGBColor(255, 255, 255), "P.I.", font_size=11, bold=True, text_color=TEXT_BLACK)
 
         c_avg_left = s_tbl.cell(3, 0)
-        if s_cols > 2: c_avg_left.merge(s_tbl.cell(3, s_cols - 2))
+        if s_cols > 2:
+            c_avg_left.merge(s_tbl.cell(3, s_cols - 2))
         format_cell_native(c_avg_left, CREAM_BEIGE, "AVERAGE P.I. (Total P.I. divided by # of Stations)", font_size=11, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.RIGHT)
         format_cell_native(s_tbl.cell(3, s_cols - 1), CREAM_BEIGE, f"{dept_avg_pi:.1f} {format_delta(dept_avg_pi, prev_dept_avg_pi, True)}", font_size=12, bold=True, text_color=TEXT_BLACK)
 
-        # Output & P.I. Combo Chart with Transparent Overlay
         ch_x, ch_y, ch_w, ch_h = Inches(3.28), Inches(2.94), Inches(6.74), Inches(3.97)
         sum_card = sum_slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, ch_x, ch_y, ch_w, ch_h)
         sum_card.fill.solid(); sum_card.fill.fore_color.rgb, sum_card.line.color.rgb = RGBColor(255, 255, 255), RGBColor(210, 210, 210)
@@ -821,17 +880,21 @@ def generate_monthly_deck(conn, year, month):
         line_chart = sum_slide.shapes.add_chart(XL_CHART_TYPE.LINE, ch_x + Inches(0.12), ch_y + Inches(0.08), ch_w - Inches(0.24), ch_h - Inches(0.48), data_line).chart
         line_chart.has_title = False; line_chart.has_legend = False
 
-        # Make overlay transparent
         try:
             sp_pr = line_chart._element.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}spPr')
-            if sp_pr is None: line_chart._element.insert(0, parse_xml('<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>'))
-            else: sp_pr.append(parse_xml('<a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'))
+            if sp_pr is None:
+                line_chart._element.insert(0, parse_xml('<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>'))
+            else:
+                sp_pr.append(parse_xml('<a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'))
             plot_area = line_chart._element.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}plotArea')
             if plot_area is not None:
                 pa_sp_pr = plot_area.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}spPr')
-                if pa_sp_pr is None: plot_area.insert(0, parse_xml('<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>'))
-                else: pa_sp_pr.append(parse_xml('<a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'))
-        except Exception: pass
+                if pa_sp_pr is None:
+                    plot_area.insert(0, parse_xml('<c:spPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></c:spPr>'))
+                else:
+                    pa_sp_pr.append(parse_xml('<a:noFill xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'))
+        except Exception:
+            pass
 
         val_ax2 = line_chart.value_axis; val_ax2.has_major_gridlines = False
         val_ax2.tick_labels.font.name = "Aptos"
@@ -839,16 +902,18 @@ def generate_monthly_deck(conn, year, month):
         try:
             val_ax2_elem = val_ax2._element
             axPos = val_ax2_elem.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}axPos')
-            if axPos is not None: axPos.set('val', 'r')
+            if axPos is not None:
+                axPos.set('val', 'r')
             crosses = val_ax2_elem.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}crosses')
-            if crosses is not None: crosses.set('val', 'max')
-        except Exception: pass
+            if crosses is not None:
+                crosses.set('val', 'max')
+        except Exception:
+            pass
         line_chart.category_axis.visible = False
 
         s_pi = line_chart.series[0]; s_pi.format.line.color.rgb, s_pi.format.line.width, s_pi.format.line.dash_style = GOLD_PI, Pt(1.5), MSO_LINE.DASH_DOT
         s_tgt = line_chart.series[1]; s_tgt.format.line.color.rgb, s_tgt.format.line.width, s_tgt.format.line.dash_style = BLACK_TARGET, Pt(1.5), MSO_LINE.DASH
 
-        # Legend
         leg_box = sum_slide.shapes.add_textbox(ch_x, ch_y + ch_h - Inches(0.38), ch_w, Inches(0.35))
         p_leg = leg_box.text_frame.paragraphs[0]; p_leg.alignment = PP_ALIGN.CENTER
         r_l1 = p_leg.add_run(); r_l1.text = "■ OUTPUT       "; r_l1.font.bold, r_l1.font.size, r_l1.font.color.rgb = True, Pt(8), OUTPUT_PURPLE
@@ -861,7 +926,7 @@ def generate_monthly_deck(conn, year, month):
     p_dq = slide_div_q.shapes.add_textbox(Inches(1.0), Inches(3.0), Inches(11.33), Inches(1.5)).text_frame.paragraphs[0]
     p_dq.text = "Quality Index & KPIs"; p_dq.font.name, p_dq.font.bold, p_dq.font.size, p_dq.font.color.rgb = "Arial", True, Pt(48), WHITE_TEXT; p_dq.alignment = PP_ALIGN.CENTER
 
-    # SLIDE N+3: EXECUTIVE KPI SCORECARD (SLIDE 14)
+    # SLIDE N+3: EXECUTIVE KPI SCORECARD
     add_kpi_scorecard_slide(prs, conn, year, month)
 
     # SLIDE N+4: QUALITY INDEX
@@ -876,7 +941,8 @@ def generate_monthly_deck(conn, year, month):
     for _ in range(12):
         rolling_months.append((cy, cm))
         cm -= 1
-        if cm == 0: cm, cy = 12, cy - 1
+        if cm == 0:
+            cm, cy = 12, cy - 1
     rolling_months.reverse()
 
     df_all_cals = pd.read_sql("SELECT cal_year, cal_month, COUNT(*) as units FROM calibrations GROUP BY cal_year, cal_month", conn)
@@ -891,8 +957,8 @@ def generate_monthly_deck(conn, year, month):
         tot_c = cal_lookup.get((y_num, m_num), 0)
         m_rejs = df_all_rejs[(df_all_rejs["reject_year"] == y_num) & (df_all_rejs["reject_month"] == m_num)] if not df_all_rejs.empty else pd.DataFrame()
         tot_err = m_rejs["cnt"].sum() if not m_rejs.empty else 0
-        coc_cnt = m_rejs[m_rejs["failure_reason"].str.lower().str.contains("coc")]["cnt"].sum() if not m_rejs.empty else 0
-        mr_cnt = m_rejs[m_rejs["failure_reason"].str.lower().str.contains("measurement|report")]["cnt"].sum() if not m_rejs.empty else 0
+        coc_cnt = m_rejs[m_rejs["failure_reason"].astype(str).str.lower().str.contains("coc")]["cnt"].sum() if not m_rejs.empty else 0
+        mr_cnt = m_rejs[m_rejs["failure_reason"].astype(str).str.lower().str.contains("measurement|report")]["cnt"].sum() if not m_rejs.empty else 0
         oth_cnt = tot_err - (coc_cnt + mr_cnt)
         coc_counts.append(int(coc_cnt)); mr_counts.append(int(mr_cnt)); others_counts.append(int(oth_cnt))
         acc_rates.append(round(((tot_c - tot_err) / tot_c) * 100.0, 1) if tot_c > 0 else (100.0 if tot_err == 0 else 98.0))
@@ -902,15 +968,18 @@ def generate_monthly_deck(conn, year, month):
     set_native_table_grid_style(q_tbl)
     q_tbl.columns[0].width, q_tbl.columns[1].width = Inches(0.5), Inches(1.8)
     q_col_w = int((Inches(12.5) - Inches(2.3)) / 12)
-    for c in range(2, 14): q_tbl.columns[c].width = q_col_w
+    for c in range(2, 14):
+        q_tbl.columns[c].width = q_col_w
 
     c_m0 = q_tbl.cell(0, 0); c_m0.merge(q_tbl.cell(0, 1))
     format_cell_native(c_m0, BLUE_HEADER, "MONTH", font_size=10, bold=True, text_color=WHITE_TEXT)
-    for i, lbl in enumerate(month_labels): format_cell_native(q_tbl.cell(0, i + 2), BLUE_HEADER, lbl, font_size=9, bold=True, text_color=WHITE_TEXT)
+    for i, lbl in enumerate(month_labels):
+        format_cell_native(q_tbl.cell(0, i + 2), BLUE_HEADER, lbl, font_size=9, bold=True, text_color=WHITE_TEXT)
 
     c_ar0 = q_tbl.cell(1, 0); c_ar0.merge(q_tbl.cell(1, 1))
     format_cell_native(c_ar0, RGBColor(230, 240, 250), "Acceptance Rate (%)", font_size=10, bold=True, text_color=TEXT_BLACK)
-    for i, r_val in enumerate(acc_rates): format_cell_native(q_tbl.cell(1, i + 2), RGBColor(230, 240, 250), f"{r_val:.1f}", font_size=9, bold=False, text_color=TEXT_BLACK)
+    for i, r_val in enumerate(acc_rates):
+        format_cell_native(q_tbl.cell(1, i + 2), RGBColor(230, 240, 250), f"{r_val:.1f}", font_size=9, bold=False, text_color=TEXT_BLACK)
 
     c_mis = q_tbl.cell(2, 0); c_mis.merge(q_tbl.cell(4, 0))
     format_cell_native(c_mis, BLUE_HEADER, "MISTAKES", font_size=9, bold=True, text_color=WHITE_TEXT)
@@ -924,7 +993,6 @@ def generate_monthly_deck(conn, year, month):
         format_cell_native(q_tbl.cell(3, c_i), RGBColor(255, 255, 255), str(mr_counts[i]) if mr_counts[i] > 0 else "", font_size=9, text_color=TEXT_BLACK)
         format_cell_native(q_tbl.cell(4, c_i), RGBColor(255, 255, 255), str(others_counts[i]) if others_counts[i] > 0 else "", font_size=9, text_color=TEXT_BLACK)
 
-    # Line Chart
     cq1_x, cq1_y, cq1_w, cq1_h = Inches(0.4), Inches(3.4), Inches(6.1), Inches(3.4)
     card_q1 = slide_q.shapes.add_shape(MSO_SHAPE.RECTANGLE, cq1_x, cq1_y, cq1_w, cq1_h)
     card_q1.fill.solid(); card_q1.fill.fore_color.rgb, card_q1.line.color.rgb = CONTAINER_BG, CARD_BORDER
@@ -941,7 +1009,6 @@ def generate_monthly_deck(conn, year, month):
     s_act = ch_q1.series[0]; s_act.format.line.color.rgb, s_act.format.line.width = GREEN_ACTUAL, Pt(1.5)
     s_tgt_q = ch_q1.series[1]; s_tgt_q.format.line.color.rgb, s_tgt_q.format.line.width, s_tgt_q.format.line.dash_style = BLACK_TARGET, Pt(1.5), MSO_LINE.DASH
 
-    # Column Chart
     cq2_x, cq2_y, cq2_w, cq2_h = Inches(6.8), Inches(3.4), Inches(6.1), Inches(3.4)
     card_q2 = slide_q.shapes.add_shape(MSO_SHAPE.RECTANGLE, cq2_x, cq2_y, cq2_w, cq2_h)
     card_q2.fill.solid(); card_q2.fill.fore_color.rgb, card_q2.line.color.rgb = CONTAINER_BG, CARD_BORDER
@@ -964,40 +1031,57 @@ def generate_monthly_deck(conn, year, month):
     p_fn = slide_q.shapes.add_textbox(Inches(0.4), Inches(6.9), Inches(5.0), Inches(0.4)).text_frame.paragraphs[0]
     p_fn.text, p_fn.font.italic, p_fn.font.color.rgb = "Detail breakdown will be the next slide.", True, RGBColor(255, 235, 156)
 
-    # SLIDE N+5: DESCRIPTION OF OUTGOING ERRORS
-    slide_err = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide_err, prs, "Grey Wave.png", BG_COLOR)
-
-    p_errt = slide_err.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65)).text_frame.paragraphs[0]
-    p_errt.text = "DESCRIPTION OF OUTGOING ERRORS"; p_errt.font.name, p_errt.font.bold, p_errt.font.size, p_errt.font.color.rgb = "Arial", True, Pt(24), CORAL_TITLE
-
+    # SLIDE N+5+: DESCRIPTION OF OUTGOING ERRORS (PAGINATED AT 15 ROWS PER SLIDE)
     df_cur_rejs = pd.read_sql("SELECT cal_by, model_id, serial_no, reject_date, failure_reason, remark FROM rejection_logs WHERE reject_year = ? AND reject_month = ? ORDER BY reject_date ASC", conn, params=[year, month])
     if not df_cur_rejs.empty:
         df_cur_rejs["clean_cal_by"] = df_cur_rejs["cal_by"].astype(str).str.strip().str.lower()
-        df_cur_rejs = df_cur_rejs[(~df_cur_rejs["clean_cal_by"].isin(muted_users)) & (df_cur_rejs["clean_cal_by"].isin(roster_users))]
-
-    err_rows = max(2, len(df_cur_rejs) + 1)
-    err_tbl = slide_err.shapes.add_table(err_rows, 6, Inches(0.4), Inches(1.15), Inches(12.5), Inches(0.35 * err_rows)).table
-    set_native_table_grid_style(err_tbl)
-    err_tbl.columns[0].width, err_tbl.columns[1].width, err_tbl.columns[2].width, err_tbl.columns[3].width, err_tbl.columns[4].width, err_tbl.columns[5].width = Inches(1.8), Inches(1.5), Inches(1.8), Inches(1.6), Inches(1.8), Inches(4.0)
+        df_cur_rejs = df_cur_rejs[(~df_cur_rejs["clean_cal_by"].isin(muted_users)) & (df_cur_rejs["clean_cal_by"].isin(roster_users))].reset_index(drop=True)
 
     err_headers = ["AE Resp.", "Model No", "Serial No", "Rejected Date", "Failure Reason", "Remarks by Inspector"]
-    for c_i, h_text in enumerate(err_headers): format_cell_native(err_tbl.cell(0, c_i), BLUE_HEADER, h_text, font_size=10, bold=True, text_color=WHITE_TEXT)
+    max_rows_per_slide = 15
 
-    if not df_cur_rejs.empty:
-        for r_i, row in df_cur_rejs.reset_index(drop=True).iterrows():
-            curr_r = r_i + 1
-            raw_u = str(row["cal_by"]).strip().lower()
-            ae_display = username_to_name.get(raw_u, str(row["cal_by"]))
-            format_cell_native(err_tbl.cell(curr_r, 0), RGBColor(255, 255, 255), ae_display, font_size=9, bold=True, text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 1), RGBColor(255, 255, 255), str(row["model_id"]), font_size=9, text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 2), RGBColor(255, 255, 255), str(row["serial_no"]), font_size=9, text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 3), RGBColor(255, 255, 255), str(row["reject_date"]), font_size=9, text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 4), RGBColor(255, 255, 255), str(row["failure_reason"]), font_size=9, text_color=TEXT_BLACK)
-            format_cell_native(err_tbl.cell(curr_r, 5), RGBColor(255, 255, 255), str(row["remark"]), font_size=9, text_color=TEXT_BLACK, align=PP_ALIGN.LEFT, margin_left=0.14)
-    else:
+    if df_cur_rejs.empty:
+        slide_err = prs.slides.add_slide(blank_layout)
+        set_slide_background(slide_err, prs, "Grey Wave.png", BG_COLOR)
+        p_errt = slide_err.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65)).text_frame.paragraphs[0]
+        p_errt.text = "DESCRIPTION OF OUTGOING ERRORS"; p_errt.font.name, p_errt.font.bold, p_errt.font.size, p_errt.font.color.rgb = "Arial", True, Pt(24), CORAL_TITLE
+
+        err_tbl = slide_err.shapes.add_table(2, 6, Inches(0.4), Inches(1.15), Inches(12.5), Inches(0.70)).table
+        set_native_table_grid_style(err_tbl)
+        err_tbl.columns[0].width, err_tbl.columns[1].width, err_tbl.columns[2].width, err_tbl.columns[3].width, err_tbl.columns[4].width, err_tbl.columns[5].width = Inches(1.8), Inches(1.5), Inches(1.8), Inches(1.6), Inches(1.8), Inches(4.0)
+        for c_i, h_text in enumerate(err_headers):
+            format_cell_native(err_tbl.cell(0, c_i), BLUE_HEADER, h_text, font_size=10, bold=True, text_color=WHITE_TEXT)
         c_no_err = err_tbl.cell(1, 0); c_no_err.merge(err_tbl.cell(1, 5))
         format_cell_native(c_no_err, RGBColor(255, 255, 255), "No outgoing inspection errors recorded for this period.", font_size=11, bold=True, text_color=GREEN_DELTA)
+    else:
+        for chunk_start in range(0, len(df_cur_rejs), max_rows_per_slide):
+            df_chunk = df_cur_rejs.iloc[chunk_start:chunk_start + max_rows_per_slide].reset_index(drop=True)
+            slide_err = prs.slides.add_slide(blank_layout)
+            set_slide_background(slide_err, prs, "Grey Wave.png", BG_COLOR)
+
+            p_errt = slide_err.shapes.add_textbox(Inches(1.51), Inches(0.37), Inches(11.5), Inches(0.65)).text_frame.paragraphs[0]
+            suffix = " (CONT.)" if chunk_start > 0 else ""
+            p_errt.text = f"DESCRIPTION OF OUTGOING ERRORS{suffix}"
+            p_errt.font.name, p_errt.font.bold, p_errt.font.size, p_errt.font.color.rgb = "Arial", True, Pt(24), CORAL_TITLE
+
+            err_rows = len(df_chunk) + 1
+            err_tbl = slide_err.shapes.add_table(err_rows, 6, Inches(0.4), Inches(1.15), Inches(12.5), Inches(0.35 * err_rows)).table
+            set_native_table_grid_style(err_tbl)
+            err_tbl.columns[0].width, err_tbl.columns[1].width, err_tbl.columns[2].width, err_tbl.columns[3].width, err_tbl.columns[4].width, err_tbl.columns[5].width = Inches(1.8), Inches(1.5), Inches(1.8), Inches(1.6), Inches(1.8), Inches(4.0)
+
+            for c_i, h_text in enumerate(err_headers):
+                format_cell_native(err_tbl.cell(0, c_i), BLUE_HEADER, h_text, font_size=10, bold=True, text_color=WHITE_TEXT)
+
+            for r_i, row in df_chunk.iterrows():
+                curr_r = r_i + 1
+                raw_u = clean_username(row["cal_by"])
+                ae_display = username_to_name.get(raw_u, str(row["cal_by"]))
+                format_cell_native(err_tbl.cell(curr_r, 0), RGBColor(255, 255, 255), ae_display, font_size=9, bold=True, text_color=TEXT_BLACK)
+                format_cell_native(err_tbl.cell(curr_r, 1), RGBColor(255, 255, 255), str(row["model_id"]), font_size=9, text_color=TEXT_BLACK)
+                format_cell_native(err_tbl.cell(curr_r, 2), RGBColor(255, 255, 255), str(row["serial_no"]), font_size=9, text_color=TEXT_BLACK)
+                format_cell_native(err_tbl.cell(curr_r, 3), RGBColor(255, 255, 255), str(row["reject_date"]), font_size=9, text_color=TEXT_BLACK)
+                format_cell_native(err_tbl.cell(curr_r, 4), RGBColor(255, 255, 255), str(row["failure_reason"]), font_size=9, text_color=TEXT_BLACK)
+                format_cell_native(err_tbl.cell(curr_r, 5), RGBColor(255, 255, 255), str(row["remark"]), font_size=9, text_color=TEXT_BLACK, align=PP_ALIGN.LEFT, margin_left=0.14)
 
     output_stream = io.BytesIO()
     prs.save(output_stream)
@@ -1006,7 +1090,7 @@ def generate_monthly_deck(conn, year, month):
 
 
 # =============================================================================
-# GENERATE QUARTERLY PRESENTATION DECK (2 SLIDES)
+# GENERATE QUARTERLY PRESENTATION DECK (2 SLIDES - OPTION B ALIGNED)
 # =============================================================================
 def generate_quarterly_deck(conn, selected_quarter):
     prs = Presentation()
@@ -1020,7 +1104,8 @@ def generate_quarterly_deck(conn, selected_quarter):
         cal_y, m = int(r["yr"]), int(r["mo"])
         q_label, fiscal_yr, _ = get_keysight_fiscal_info(cal_y, m)
         q_key = f"{q_label} FY'{str(fiscal_yr)[-2:]}"
-        if q_key not in fiscal_quarters_map: fiscal_quarters_map[q_key] = []
+        if q_key not in fiscal_quarters_map:
+            fiscal_quarters_map[q_key] = []
         fiscal_quarters_map[q_key].append((cal_y, m))
 
     if not fiscal_quarters_map:
@@ -1030,96 +1115,130 @@ def generate_quarterly_deck(conn, selected_quarter):
     quarter_months = fiscal_quarters_map[q_key]
     month_names = [calendar.month_abbr[m].upper() for (_, m) in quarter_months]
 
-    target_groups = [
-        "CSG", 
-        "EiSG+Scope", 
-        "Legacy+Modular+PMPS(A)+MMA+Others", 
-        "STD LAB"
-    ]
+    mec_active = conn.execute("SELECT 1 FROM stations WHERE is_active = 1 AND UPPER(name) LIKE '%MEC%'").fetchone() is not None
+    target_groups = list(CORE_GROUPS)
+    if mec_active:
+        target_groups.append("MEC Lab")
+
+    model_group_rows = conn.execute("SELECT model_id, group_name FROM model_groups").fetchall()
+    model_group_map = {str(r["model_id"]).strip().upper(): canonicalize_group_name(r["group_name"]) for r in model_group_rows if r["model_id"]}
+
+    station_group_rows = conn.execute("SELECT id, group_name FROM stations").fetchall()
+    station_group_map = {r["id"]: canonicalize_group_name(r["group_name"]) for r in station_group_rows}
 
     all_engineers = conn.execute("""
-        SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.activation_date, e.resigned_date, s.name as station_name, s.group_name 
-        FROM engineers e LEFT JOIN stations s ON e.station_id = s.id 
+        SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.activation_date, e.resigned_date
+        FROM engineers e
         WHERE (e.track_performance = 1 OR e.track_performance IS NULL)
     """).fetchall()
 
-    muted_rows = conn.execute("SELECT username FROM ignored_technicians").fetchall()
-    muted_users = set([m["username"].strip().lower() for m in muted_rows])
+    muted_users = {clean_username(m["username"]) for m in conn.execute("SELECT username FROM ignored_technicians").fetchall()}
+    roster_users = {clean_username(e["username"]) for e in all_engineers if clean_username(e["username"])}
 
     df_cals_q = pd.DataFrame()
     for (cy, cm) in quarter_months:
         df_m = pd.read_sql("SELECT service_id, model_id, serial_no, cal_date, cal_day, cal_month, cal_year, cal_by, category, mos FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[cy, cm])
-        if not df_m.empty: df_cals_q = pd.concat([df_cals_q, df_m], ignore_index=True)
+        if not df_m.empty:
+            df_cals_q = pd.concat([df_cals_q, df_m], ignore_index=True)
 
     if not df_cals_q.empty:
         df_cals_q["clean_by"] = df_cals_q["cal_by"].astype(str).str.strip().str.lower()
-        df_cals_q = df_cals_q[~df_cals_q["clean_by"].isin(muted_users)]
+        df_cals_q = df_cals_q[df_cals_q["clean_by"].isin(roster_users) & (~df_cals_q["clean_by"].isin(muted_users))].copy()
+        df_cals_q["clean_model"] = df_cals_q["model_id"].astype(str).str.strip().str.upper()
+        df_cals_q["seg_group"] = df_cals_q["clean_model"].map(model_group_map)
 
     df_att_q = pd.DataFrame()
     for (cy, cm) in quarter_months:
         df_m = pd.read_sql("SELECT formal_name, capped_hours, year, month FROM attendance WHERE year = ? AND month = ?", conn, params=[cy, cm])
-        if not df_m.empty: df_att_q = pd.concat([df_att_q, df_m], ignore_index=True)
+        if not df_m.empty:
+            df_att_q = pd.concat([df_att_q, df_m], ignore_index=True)
     if not df_att_q.empty:
         df_att_q["clean_name"] = df_att_q["formal_name"].apply(normalize_str)
 
-    group_stats = {}
-    for grp in target_groups:
-        st_rows = conn.execute("SELECT id, name FROM stations WHERE is_active = 1 AND (group_name = ? OR (group_name LIKE '%STD%' AND ? = 'STD LAB') OR (group_name LIKE '%LEGACY%' AND ? LIKE '%LEGACY%'))", (grp, grp, grp)).fetchall()
-        st_ids = [s["id"] for s in st_rows]
+    # Option B: Monthly proportional labor share + model_groups unit mapping
+    group_monthly = {grp: {"vols": [], "days": [], "pis": [], "tats": []} for grp in target_groups}
 
-        m_vols, m_days, m_pis, m_tats = [], [], [], []
+    for (cy, cm) in quarter_months:
+        _, num_d = calendar.monthrange(cy, cm)
+        m_start, m_end = date(cy, cm, 1), date(cy, cm, num_d)
 
-        for (cy, cm) in quarter_months:
-            _, num_d = calendar.monthrange(cy, cm)
-            m_start, m_end = date(cy, cm, 1), date(cy, cm, num_d)
-            aes_in_st = set()
-            month_days = 0.0
+        m_days_by_grp = {grp: 0.0 for grp in target_groups}
+        m_cals_all = df_cals_q[(df_cals_q["cal_year"] == cy) & (df_cals_q["cal_month"] == cm)] if not df_cals_q.empty else pd.DataFrame()
 
-            for e in all_engineers:
-                act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
-                if act_d and act_d > m_end: continue
-                if res_d and res_d < m_start: continue
-                
-                st_id, _, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], cy, cm)
-                if not st_active: continue
+        for e in all_engineers:
+            u_clean = clean_username(e["username"])
+            if not u_clean or u_clean in muted_users:
+                continue
+            act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
+            if not act_d or act_d > m_end:
+                continue
 
-                if st_id in st_ids:
-                    u_clean = e["username"].strip().lower()
-                    aes_in_st.add(u_clean)
-                    fn_norm = normalize_str(e["formal_name"])
-                    shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
-                    hrs = df_att_q[(df_att_q["clean_name"] == fn_norm) & (df_att_q["year"] == cy) & (df_att_q["month"] == cm)]["capped_hours"].sum() if not df_att_q.empty else 0.0
-                    month_days += (hrs / shift)
+            ae_m_cals = m_cals_all[m_cals_all["clean_by"] == u_clean] if not m_cals_all.empty else pd.DataFrame()
+            if res_d and res_d < m_start and len(ae_m_cals) == 0:
+                continue
 
-            m_cals = df_cals_q[(df_cals_q["cal_year"] == cy) & (df_cals_q["cal_month"] == cm) & (df_cals_q["clean_by"].isin(aes_in_st))] if (not df_cals_q.empty and aes_in_st) else pd.DataFrame()
-            u_cnt = len(m_cals)
-            pi_val = round(u_cnt / month_days, 1) if month_days > 0 else 0.0
+            st_id, _, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], cy, cm)
+            if not st_active:
+                continue
+
+            fn_norm = normalize_str(e["formal_name"])
+            shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
+            hrs = df_att_q[(df_att_q["clean_name"] == fn_norm) & (df_att_q["year"] == cy) & (df_att_q["month"] == cm)]["capped_hours"].sum() if not df_att_q.empty else 0.0
+            ae_days = hrs / shift
+
+            if ae_days <= 0:
+                continue
+
+            ae_mapped = ae_m_cals[ae_m_cals["seg_group"].isin(target_groups)] if not ae_m_cals.empty else pd.DataFrame()
+            tot_mapped = len(ae_mapped)
+
+            if tot_mapped > 0:
+                grp_counts = ae_mapped["seg_group"].value_counts().to_dict()
+                for grp, cnt in grp_counts.items():
+                    m_days_by_grp[grp] += ae_days * (cnt / float(tot_mapped))
+            else:
+                fb_grp = station_group_map.get(st_id)
+                if fb_grp in m_days_by_grp:
+                    m_days_by_grp[fb_grp] += ae_days
+
+        for grp in target_groups:
+            g_cals = m_cals_all[m_cals_all["seg_group"] == grp] if not m_cals_all.empty else pd.DataFrame()
+            u_cnt = len(g_cals)
+            g_days = m_days_by_grp[grp]
+            pi_val = round(u_cnt / g_days, 1) if g_days > 0 else 0.0
 
             w_num, a_w = 0.0, 0.0
             for cat in TAT_CATEGORIES:
                 k_key, weight = cat["key"], cat["weight"]
-                c_sub = m_cals[m_cals["category"].str.strip().str.upper() == k_key.upper()] if not m_cals.empty else pd.DataFrame()
+                c_sub = g_cals[g_cals["category"].astype(str).str.strip().str.upper() == k_key.upper()] if not g_cals.empty else pd.DataFrame()
                 if len(c_sub) > 0:
                     pct = int(round(((c_sub["mos"] == 1).sum() / len(c_sub)) * 100.0))
                     w_num += pct * (weight / 100.0)
                     a_w += (weight / 100.0)
             tat_val = int(round(w_num / a_w)) if a_w > 0 else 100
 
-            m_vols.append(u_cnt)
-            m_days.append(month_days)
-            m_pis.append(pi_val)
-            m_tats.append(tat_val)
+            group_monthly[grp]["vols"].append(u_cnt)
+            group_monthly[grp]["days"].append(g_days)
+            group_monthly[grp]["pis"].append(pi_val)
+            group_monthly[grp]["tats"].append(tat_val)
+
+    group_stats = {}
+    for grp in target_groups:
+        m_vols = group_monthly[grp]["vols"]
+        m_days = group_monthly[grp]["days"]
+        m_pis = group_monthly[grp]["pis"]
+        m_tats = group_monthly[grp]["tats"]
 
         tot_vol = sum(m_vols)
         tot_days = sum(m_days)
         quarter_pi = round(tot_vol / tot_days, 1) if tot_days > 0 else 0.0
         avg_mo_vol = int(round(tot_vol / 3.0))
 
-        grp_all_cals = df_cals_q[df_cals_q["clean_by"].isin(aes_in_st)] if (not df_cals_q.empty and aes_in_st) else pd.DataFrame()
+        grp_all_cals = df_cals_q[df_cals_q["seg_group"] == grp] if not df_cals_q.empty else pd.DataFrame()
         q_w_num, q_a_w = 0.0, 0.0
         for cat in TAT_CATEGORIES:
             k_key, weight = cat["key"], cat["weight"]
-            c_sub = grp_all_cals[grp_all_cals["category"].str.strip().str.upper() == k_key.upper()] if not grp_all_cals.empty else pd.DataFrame()
+            c_sub = grp_all_cals[grp_all_cals["category"].astype(str).str.strip().str.upper() == k_key.upper()] if not grp_all_cals.empty else pd.DataFrame()
             if len(c_sub) > 0:
                 pct = int(round(((c_sub["mos"] == 1).sum() / len(c_sub)) * 100.0))
                 q_w_num += pct * (weight / 100.0)
@@ -1132,9 +1251,9 @@ def generate_quarterly_deck(conn, selected_quarter):
             "m_tats": m_tats, "quarter_tat": quarter_tat
         }
 
-    # =========================================================================
+    num_q_months = len(quarter_months)
+
     # SLIDE 1: PRODUCTIVITY INDEX OF <QUARTER>
-    # =========================================================================
     slide1 = prs.slides.add_slide(blank_layout)
     set_slide_background(slide1, prs, "Grey Wave.png", BG_COLOR)
 
@@ -1168,28 +1287,30 @@ def generate_quarterly_deck(conn, selected_quarter):
     ch1.legend.position = XL_LEGEND_POSITION.BOTTOM
     ch1.legend.font.name, ch1.legend.font.size = "Aptos", Pt(8)
 
-    tbl1 = slide1.shapes.add_table(6, 5, Inches(2.2), Inches(5.15), Inches(8.9), Inches(1.9)).table
+    rows_t1 = 2 + len(target_groups)
+    tbl1 = slide1.shapes.add_table(rows_t1, 5, Inches(2.2), Inches(5.15), Inches(8.9), Inches(1.9)).table
     set_native_table_grid_style(tbl1)
     tbl1.columns[0].width = Inches(3.7)
-    for c_i in range(1, 5): tbl1.columns[c_i].width = Inches(1.3)
+    for c_i in range(1, 5):
+        tbl1.columns[c_i].width = Inches(1.3)
 
     c_m1 = tbl1.cell(0, 0); c_m1.merge(tbl1.cell(0, 4))
     format_cell_native(c_m1, BLUE_HEADER, "PRODUCTIVITY INDEX (P.I.)", font_size=12, bold=True, text_color=WHITE_TEXT)
 
     format_cell_native(tbl1.cell(1, 0), BLUE_HEADER, "GROUP", font_size=11, bold=True, text_color=WHITE_TEXT)
-    for m_i, m_name in enumerate(month_names):
-        format_cell_native(tbl1.cell(1, m_i + 1), BLUE_HEADER, m_name, font_size=11, bold=True, text_color=WHITE_TEXT)
+    for m_i in range(3):
+        hdr_lbl = month_names[m_i] if m_i < num_q_months else "-"
+        format_cell_native(tbl1.cell(1, m_i + 1), BLUE_HEADER, hdr_lbl, font_size=11, bold=True, text_color=WHITE_TEXT)
     format_cell_native(tbl1.cell(1, 4), BLUE_HEADER, "AVERAGE", font_size=11, bold=True, text_color=WHITE_TEXT)
 
     for r_i, grp in enumerate(target_groups, start=2):
         format_cell_native(tbl1.cell(r_i, 0), RGBColor(255, 255, 255), grp, font_size=10, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER)
         for m_i in range(3):
-            format_cell_native(tbl1.cell(r_i, m_i + 1), RGBColor(255, 255, 255), f"{group_stats[grp]['m_pis'][m_i]:.1f}", font_size=11, text_color=TEXT_BLACK)
+            val_str = f"{group_stats[grp]['m_pis'][m_i]:.1f}" if m_i < num_q_months else "-"
+            format_cell_native(tbl1.cell(r_i, m_i + 1), RGBColor(255, 255, 255), val_str, font_size=11, text_color=TEXT_BLACK)
         format_cell_native(tbl1.cell(r_i, 4), RGBColor(190, 218, 245), f"{group_stats[grp]['quarter_pi']:.1f}", font_size=12, bold=True, text_color=TEXT_BLACK)
 
-    # =========================================================================
     # SLIDE 2: OUTPUT & TAT PERFORMANCE OF <QUARTER>
-    # =========================================================================
     slide2 = prs.slides.add_slide(blank_layout)
     set_slide_background(slide2, prs, "Grey Wave.png", BG_COLOR)
 
@@ -1198,7 +1319,6 @@ def generate_quarterly_deck(conn, selected_quarter):
     p2.text = f"OUTPUT & TAT PERFORMANCE OF {q_key}"
     p2.font.name, p2.font.bold, p2.font.size, p2.font.color.rgb = "Arial", True, Pt(26), CORAL_TITLE
 
-    # LEFT HALF: OUTPUT (VOLUME)
     c_out_x, c_out_y, c_out_w, c_out_h = Inches(0.4), Inches(1.15), Inches(6.0), Inches(3.8)
     card_out = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, c_out_x, c_out_y, c_out_w, c_out_h)
     card_out.fill.solid(); card_out.fill.fore_color.rgb, card_out.line.color.rgb = RGBColor(255, 255, 255), RGBColor(210, 210, 210)
@@ -1225,31 +1345,33 @@ def generate_quarterly_deck(conn, selected_quarter):
     ch_out.legend.position = XL_LEGEND_POSITION.BOTTOM
     ch_out.legend.font.name, ch_out.legend.font.size = "Aptos", Pt(7.5)
 
-    tbl_o = slide2.shapes.add_table(6, 6, Inches(0.4), Inches(5.15), Inches(6.0), Inches(1.9)).table
+    tbl_o = slide2.shapes.add_table(rows_t1, 6, Inches(0.4), Inches(5.15), Inches(6.0), Inches(1.9)).table
     set_native_table_grid_style(tbl_o)
     tbl_o.columns[0].width = Inches(2.2)
-    for c_i in range(1, 6): tbl_o.columns[c_i].width = Inches(0.76)
+    for c_i in range(1, 6):
+        tbl_o.columns[c_i].width = Inches(0.76)
 
     c_mo = tbl_o.cell(0, 0); c_mo.merge(tbl_o.cell(0, 5))
     format_cell_native(c_mo, TEAL_HEADER, "OUTPUT", font_size=11, bold=True, text_color=WHITE_TEXT)
 
     format_cell_native(tbl_o.cell(1, 0), TEAL_HEADER, "GROUP", font_size=9, bold=True, text_color=WHITE_TEXT)
-    for m_i, m_name in enumerate(month_names):
-        format_cell_native(tbl_o.cell(1, m_i + 1), TEAL_HEADER, m_name, font_size=9, bold=True, text_color=WHITE_TEXT)
+    for m_i in range(3):
+        hdr_lbl = month_names[m_i] if m_i < num_q_months else "-"
+        format_cell_native(tbl_o.cell(1, m_i + 1), TEAL_HEADER, hdr_lbl, font_size=9, bold=True, text_color=WHITE_TEXT)
     format_cell_native(tbl_o.cell(1, 4), TEAL_HEADER, "TOTAL", font_size=9, bold=True, text_color=WHITE_TEXT)
     format_cell_native(tbl_o.cell(1, 5), TEAL_HEADER, "AVERAGE", font_size=9, bold=True, text_color=WHITE_TEXT)
 
     for r_i, grp in enumerate(target_groups, start=2):
         format_cell_native(tbl_o.cell(r_i, 0), RGBColor(255, 255, 255), grp, font_size=8, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER)
         for m_i in range(3):
-            format_cell_native(tbl_o.cell(r_i, m_i + 1), RGBColor(255, 255, 255), str(group_stats[grp]["m_vols"][m_i]), font_size=9, text_color=TEXT_BLACK)
+            val_str = str(group_stats[grp]["m_vols"][m_i]) if m_i < num_q_months else "-"
+            format_cell_native(tbl_o.cell(r_i, m_i + 1), RGBColor(255, 255, 255), val_str, font_size=9, text_color=TEXT_BLACK)
         format_cell_native(tbl_o.cell(r_i, 4), RGBColor(220, 240, 240), str(group_stats[grp]["tot_vol"]), font_size=9.5, bold=True, text_color=TEXT_BLACK)
         format_cell_native(tbl_o.cell(r_i, 5), RGBColor(200, 230, 230), str(group_stats[grp]["avg_mo_vol"]), font_size=9.5, bold=True, text_color=TEXT_BLACK)
 
-    # RIGHT HALF: TURNAROUND TIME
     c_tat_x, c_tat_y, c_tat_w, c_tat_h = Inches(6.9), Inches(1.15), Inches(6.0), Inches(3.8)
     card_tat = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, c_tat_x, c_tat_y, c_tat_w, c_tat_h)
-    card_tat.fill.solid(); card_tat.fill.fore_color.rgb, card_tat.line.color.rgb = CONTAINER_BG, CARD_BORDER
+    card_tat.fill.solid(); card_tat.fill.fore_color.rgb, card_tat.line.color.rgb = RGBColor(255, 255, 255), RGBColor(210, 210, 210)
 
     data_tat = CategoryChartData()
     data_tat.categories = target_groups
@@ -1272,23 +1394,26 @@ def generate_quarterly_deck(conn, selected_quarter):
     ch_tat.legend.position = XL_LEGEND_POSITION.BOTTOM
     ch_tat.legend.font.name, ch_tat.legend.font.size = "Aptos", Pt(7.5)
 
-    tbl_t = slide2.shapes.add_table(6, 5, Inches(6.9), Inches(5.15), Inches(6.0), Inches(1.9)).table
+    tbl_t = slide2.shapes.add_table(rows_t1, 5, Inches(6.9), Inches(5.15), Inches(6.0), Inches(1.9)).table
     set_native_table_grid_style(tbl_t)
     tbl_t.columns[0].width = Inches(2.2)
-    for c_i in range(1, 5): tbl_t.columns[c_i].width = Inches(0.95)
+    for c_i in range(1, 5):
+        tbl_t.columns[c_i].width = Inches(0.95)
 
     c_mt = tbl_t.cell(0, 0); c_mt.merge(tbl_t.cell(0, 4))
     format_cell_native(c_mt, RGBColor(0, 176, 80), "TURNAROUND TIME (TAT)", font_size=11, bold=True, text_color=WHITE_TEXT)
 
     format_cell_native(tbl_t.cell(1, 0), RGBColor(0, 176, 80), "GROUP", font_size=9, bold=True, text_color=WHITE_TEXT)
-    for m_i, m_name in enumerate(month_names):
-        format_cell_native(tbl_t.cell(1, m_i + 1), RGBColor(0, 176, 80), m_name, font_size=9, bold=True, text_color=WHITE_TEXT)
+    for m_i in range(3):
+        hdr_lbl = month_names[m_i] if m_i < num_q_months else "-"
+        format_cell_native(tbl_t.cell(1, m_i + 1), RGBColor(0, 176, 80), hdr_lbl, font_size=9, bold=True, text_color=WHITE_TEXT)
     format_cell_native(tbl_t.cell(1, 4), RGBColor(0, 176, 80), "AVERAGE", font_size=9, bold=True, text_color=WHITE_TEXT)
 
     for r_i, grp in enumerate(target_groups, start=2):
         format_cell_native(tbl_t.cell(r_i, 0), RGBColor(255, 255, 255), grp, font_size=8, bold=True, text_color=TEXT_BLACK, align=PP_ALIGN.CENTER)
         for m_i in range(3):
-            format_cell_native(tbl_t.cell(r_i, m_i + 1), RGBColor(255, 255, 255), f"{group_stats[grp]['m_tats'][m_i]}%", font_size=9, text_color=TEXT_BLACK)
+            val_str = f"{group_stats[grp]['m_tats'][m_i]}%" if m_i < num_q_months else "-"
+            format_cell_native(tbl_t.cell(r_i, m_i + 1), RGBColor(255, 255, 255), val_str, font_size=9, text_color=TEXT_BLACK)
         format_cell_native(tbl_t.cell(r_i, 4), RGBColor(200, 235, 210), f"{group_stats[grp]['quarter_tat']}%", font_size=9.5, bold=True, text_color=TEXT_BLACK)
 
     output_stream = io.BytesIO()

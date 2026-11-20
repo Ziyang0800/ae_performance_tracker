@@ -12,6 +12,22 @@ def get_connection():
     return sqlite3.connect(DB_PATH, timeout=30)
 
 
+def _resolve_col(cols, candidates, default=None):
+    for c in candidates:
+        if c in cols:
+            return cols[c]
+    return default
+
+
+def _safe_int(val, default=0):
+    if pd.isna(val):
+        return default
+    try:
+        return int(float(val))
+    except (ValueError, TypeError):
+        return default
+
+
 def clean_attendance_cell(val):
     if pd.isna(val):
         return "-", 0.0
@@ -58,6 +74,11 @@ def ingest_attendance(file_stream):
     df = pd.read_excel(file_stream, skiprows=header_idx)
     df.columns = [str(c).strip() for c in df.columns]
 
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    name_col = _resolve_col(cols, ["name", "staff name", "employee name", "emp name"], "Name")
+    if name_col not in df.columns:
+        raise ValueError("Attendance sheet is missing a 'Name' column.")
+
     conn = get_connection()
     try:
         cur = conn.cursor()
@@ -72,7 +93,7 @@ def ingest_attendance(file_stream):
         records = []
 
         for _, row in df.iterrows():
-            raw_name = str(row.get("Name", "")).strip().replace('"', '')
+            raw_name = str(row.get(name_col, "")).strip().replace('"', '')
             if not raw_name or raw_name.lower() in ["nan", "none", ""]:
                 continue
 
@@ -119,19 +140,17 @@ def ingest_calibrations(file_stream):
     df = pd.read_excel(file_stream)
 
     cols = {str(c).strip().lower(): c for c in df.columns}
-    cal_date_col = cols.get("caldate", "CalDate")
-    cal_by_col = cols.get("calby", "CalBy")
-    service_id_col = cols.get("serviceid", "ServiceID")
-    model_id_col = cols.get("modelid", "ModelID")
-    serial_no_col = cols.get("serialno", "SerialNo")
-    cat_col = cols.get("category", "Category")
-    mos_col = cols.get("mos", "MOS")
+    cal_date_col = _resolve_col(cols, ["caldate", "cal date", "cal_date"], "CalDate")
+    cal_by_col = _resolve_col(cols, ["calby", "cal by", "cal_by", "calibrated by"], "CalBy")
+    service_id_col = _resolve_col(cols, ["serviceid", "service id", "service_id"], "ServiceID")
+    model_id_col = _resolve_col(cols, ["modelid", "model id", "model_id"], "ModelID")
+    serial_no_col = _resolve_col(cols, ["serialno", "serial no", "serial_no"], "SerialNo")
+    cat_col = _resolve_col(cols, ["category", "cat"], "Category")
+    mos_col = _resolve_col(cols, ["mos"], "MOS")
+    sender_col = _resolve_col(cols, ["senderdept", "sender dept", "sender_dept", "department", "sender"], None)
 
-    sender_col = None
-    for candidate in ["senderdept", "sender dept", "sender_dept", "department", "sender"]:
-        if candidate in cols:
-            sender_col = cols[candidate]
-            break
+    if cal_by_col not in df.columns or cal_date_col not in df.columns:
+        raise ValueError("Calibration file must contain 'CalBy' and 'CalDate' columns.")
 
     df = df.dropna(subset=[cal_by_col, cal_date_col])
     df[cal_date_col] = pd.to_datetime(df[cal_date_col], errors="coerce")
@@ -152,19 +171,24 @@ def ingest_calibrations(file_stream):
         records = []
         for _, r in df.iterrows():
             c_date = r[cal_date_col]
-            sender_val = str(r[sender_col]).strip() if sender_col and pd.notna(r[sender_col]) else ""
-            model_val = str(r[model_id_col]).strip().upper() if pd.notna(r[model_id_col]) else ""
+            sender_val = str(r[sender_col]).strip() if sender_col and sender_col in df.columns and pd.notna(r[sender_col]) else ""
+            model_val = str(r[model_id_col]).strip().upper() if model_id_col in df.columns and pd.notna(r[model_id_col]) else ""
+            serial_val = str(r[serial_no_col]).strip() if serial_no_col in df.columns and pd.notna(r[serial_no_col]) else ""
+            cat_val = str(r[cat_col]).strip() if cat_col in df.columns and pd.notna(r[cat_col]) else ""
+            svc_val = _safe_int(r[service_id_col], 0) if service_id_col in df.columns else 0
+            mos_val = _safe_int(r[mos_col], 0) if mos_col in df.columns else 0
+
             records.append((
-                int(r[service_id_col]) if pd.notna(r[service_id_col]) else 0,
+                svc_val,
                 model_val,
-                str(r[serial_no_col]).strip() if pd.notna(r[serial_no_col]) else "",
+                serial_val,
                 c_date.strftime("%Y-%m-%d"),
                 int(c_date.day),
                 int(c_date.month),
                 int(c_date.year),
                 str(r[cal_by_col]).strip(),
-                str(r[cat_col]).strip() if pd.notna(r[cat_col]) else "",
-                int(r[mos_col]) if pd.notna(r[mos_col]) else 0,
+                cat_val,
+                mos_val,
                 sender_val
             ))
 
@@ -179,13 +203,6 @@ def ingest_calibrations(file_stream):
         return len(records)
     finally:
         conn.close()
-
-
-def _resolve_col(cols, candidates, default):
-    for c in candidates:
-        if c in cols:
-            return cols[c]
-    return default
 
 
 def ingest_rejections(file_stream):
@@ -207,9 +224,18 @@ def ingest_rejections(file_stream):
     action_col = _resolve_col(cols, ["action", "action1"], None)
     status_col = _resolve_col(cols, ["approved/rejected", "status"], None)
 
+    if cal_by_col not in df.columns or date_col not in df.columns:
+        raise ValueError("Rejection file must contain 'CalBy' and 'Approved/Reject Date' columns.")
+
     df = df.dropna(subset=[cal_by_col, date_col])
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.dropna(subset=[date_col])
+
+    # Capture periods BEFORE filtering out "wrong reject" / non-rejected rows
+    # so a corrected re-upload with 0 valid errors properly clears stale mistakes.
+    df["y"] = df[date_col].dt.year
+    df["m"] = df[date_col].dt.month
+    unique_periods = df[["y", "m"]].drop_duplicates().values.tolist()
 
     # 1. FILTER OUT NON-REJECTIONS & "WRONG REJECT" ENTRIES
     if status_col and status_col in df.columns:
@@ -222,10 +248,6 @@ def ingest_rejections(file_stream):
     try:
         cur = conn.cursor()
 
-        df["y"] = df[date_col].dt.year
-        df["m"] = df[date_col].dt.month
-        unique_periods = df[["y", "m"]].drop_duplicates().values.tolist()
-
         # 2. PROPERLY DELETE FROM BOTH TABLES TO PREVENT GHOST MISTAKES
         for y, m in unique_periods:
             cur.execute("DELETE FROM rejection_logs WHERE reject_year = ? AND reject_month = ?", (int(y), int(m)))
@@ -235,7 +257,7 @@ def ingest_rejections(file_stream):
 
         records = []
         for _, r in df.iterrows():
-            model_val = str(r.get(model_col, "")).strip().upper()
+            model_val = str(r.get(model_col, "")).strip().upper() if pd.notna(r.get(model_col, "")) else ""
             records.append((
                 str(r.get(service_col, "")),
                 model_val,
@@ -248,15 +270,18 @@ def ingest_rejections(file_stream):
                 str(r.get(remark_col, ""))
             ))
 
-        cur.executemany("""
-            INSERT INTO rejection_logs (service_id, model_id, serial_no, cal_by, reject_date, reject_year,
-                                        reject_month, failure_reason, remark)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, records)
+        if records:
+            cur.executemany("""
+                INSERT INTO rejection_logs (service_id, model_id, serial_no, cal_by, reject_date, reject_year,
+                                            reject_month, failure_reason, remark)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, records)
 
-        # 3. SYNC TO QUALITY_LOGS (ONLY FOR ACTIVE TRACKED ROSTER MEMBERS)
+        # 3. SYNC TO QUALITY_LOGS (ONLY FOR TRACKED ROSTER MEMBERS)
         for y, m in unique_periods:
             month_df = df[(df["y"] == y) & (df["m"] == m)]
+            if month_df.empty:
+                continue
             counts = month_df[cal_by_col].astype(str).str.strip().value_counts().to_dict()
 
             for u, cnt in counts.items():

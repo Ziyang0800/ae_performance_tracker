@@ -35,6 +35,9 @@
     .sort-header { cursor: pointer; user-select: none; }
     .sort-header:hover { background-color: #e9ecef !important; }
 
+    .editable-cell { cursor: pointer; }
+    .editable-cell:hover { outline: 2px solid #0d6efd; background-color: #fff9db !important; }
+
     .tat-pass { color: #0f5132 !important; font-weight: bold; }
     .tat-warn { color: #b45309 !important; font-weight: bold; }
     .tat-fail { color: #b02a37 !important; font-weight: bold; }
@@ -46,7 +49,7 @@
         <h4 class="mb-0 fw-bold">Performance Dashboard</h4>
         <small class="text-muted">Tracking Individual & Station Performance</small>
     </div>
-
+    
     <div class="d-flex align-items-center gap-2">
         <div class="btn-group btn-group-sm shadow-sm">
             <button type="button" class="btn btn-outline-secondary fw-bold" onclick="stepPeriod(-1)" title="Previous Month">◀</button>
@@ -75,6 +78,46 @@
         </a>
     </div>
 </div>
+
+<!-- DATA HEALTH ALERTS: UNMAPPED TECHS & MISSING ATTENDANCE -->
+{% if unmapped_techs %}
+<div class="alert alert-danger shadow-sm py-2 mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <strong>⚠️ {{ unmapped_techs|length }} Unmapped Technician(s) in {{ report_period }} Calibrations:</strong>
+        <a href="/team" target="_blank" class="btn btn-outline-danger btn-xs fw-bold">Open Team Roster</a>
+    </div>
+    <small class="d-block mb-2">These `CalBy` usernames are not matched to any tracked AE or muted FTE, so their units are excluded from station metrics.</small>
+    <div class="d-flex flex-wrap gap-2">
+        {% for u in unmapped_techs %}
+        <span class="badge bg-white text-dark border p-2">
+            <code>{{ u.username }}</code> ({{ u.units }} units)
+            <a href="/mute_technician?username={{ u.username | urlencode }}&period={{ selected_period }}" class="btn btn-outline-secondary btn-xs py-0 ms-2" title="Mute untracked technician / FTE">
+                🔕 Mute
+            </a>
+        </span>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if warnings %}
+<div class="alert alert-warning alert-dismissible fade show shadow-sm py-2 mb-3">
+    <strong>⚠️ Attendance Warnings ({{ warnings|length }}):</strong>
+    <ul class="mb-0 small mt-1">
+        {% for w in warnings %}
+        <li>{{ w }}</li>
+        {% endfor %}
+    </ul>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+{% if empty %}
+<div class="alert alert-info shadow-sm p-4 text-center">
+    <h5 class="fw-bold mb-1">No Active Performance Data for {{ report_period }}</h5>
+    <p class="mb-0 text-muted small">Upload calibration/attendance data or check engineer activation dates in <a href="/team">Team & Shifts</a>.</p>
+</div>
+{% else %}
 
 <!-- HEADLINE KPI CARDS -->
 <div class="row g-3 mb-4">
@@ -284,10 +327,13 @@
     </div>
 </div>
 
-<!-- CARD 3: DAILY MATRIX (STICKY FIRST COLUMN) -->
+<!-- CARD 3: DAILY MATRIX (STICKY FIRST COLUMN + DOUBLE-CLICK INLINE EDIT) -->
 <div class="card shadow-sm mb-4 border-0">
     <div class="card-header card-header-slate fw-bold d-flex justify-content-between align-items-center py-3">
-        <span>Daily Output & Attendance Logs</span>
+        <div>
+            <span>Daily Output & Attendance Logs</span>
+            <small class="fw-normal ms-2" style="opacity: 0.85;">(Double-click any cell to edit)</small>
+        </div>
         <small style="opacity: 0.9;">
             <span class="badge" style="background-color: #FF6720; color: #fff;">Weekend</span>
             <span class="badge ms-1" style="background-color: #F2A900; color: #000;">Public Holiday</span>
@@ -321,7 +367,7 @@
                 {% set row_bg = 'row-person-even' if is_odd_person else 'row-person-odd' %}
                 {% set wknd_bg = 'wknd-cell-odd' if is_odd_person else 'wknd-cell-even' %}
                 {% set ph_bg = 'ph-cell-odd' if is_odd_person else 'ph-cell-even' %}
-
+                
                 <tr data-station="{{ s.station }}">
                     <td rowspan="2" class="text-start align-middle fw-bold {{ row_bg }}">
                         {{ s.formal_name }}<br>
@@ -335,7 +381,13 @@
                     {% for att in s.daily_attendance %}
                         {% set d_info = days_info[loop.index0] %}
                         {% set cell_color = ph_bg if d_info.is_ph else (wknd_bg if d_info.is_weekend else row_bg) %}
-                        <td class="{{ cell_color }} {{ 'att-leave' if (att in ['AL', 'MC', 'PH', 'PL', 'CP', 'UPL']) else '' }}">
+                        <td class="{{ cell_color }} editable-cell {{ 'att-leave' if (att in ['AL', 'MC', 'PH', 'PL', 'CP', 'UPL']) else '' }}"
+                            data-type="hours"
+                            data-user="{{ s.username }}"
+                            data-formal="{{ s.formal_name }}"
+                            data-day="{{ d_info.day_num }}"
+                            data-val="{{ att }}"
+                            title="Double-click to edit hours">
                             {{ att }}
                         </td>
                     {% endfor %}
@@ -347,7 +399,13 @@
                     {% for out in s.daily_output %}
                         {% set d_info = days_info[loop.index0] %}
                         {% set cell_color = ph_bg if d_info.is_ph else (wknd_bg if d_info.is_weekend else row_bg) %}
-                        <td class="{{ cell_color }} {{ 'text-danger fw-bold' if out.is_zero_work else ('text-dark fw-bold' if out.has_val else '') }}">
+                        <td class="{{ cell_color }} editable-cell {{ 'text-danger fw-bold' if out.is_zero_work else ('text-dark fw-bold' if out.has_val else '') }}"
+                            data-type="output"
+                            data-user="{{ s.username }}"
+                            data-formal="{{ s.formal_name }}"
+                            data-day="{{ d_info.day_num }}"
+                            data-val="{{ out.val or '0' }}"
+                            title="Double-click to edit output units">
                             {% if out.is_zero_work %}0{% elif out.has_val %}{{ out.val }}{% endif %}
                         </td>
                     {% endfor %}
@@ -357,6 +415,32 @@
         </table>
     </div>
 </div>
+
+<!-- INLINE EDIT CELL MODAL -->
+<div class="modal fade" id="editCellModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <form id="editCellForm">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title fw-bold" id="editCellTitle">Edit Cell</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <small class="text-muted d-block mb-2" id="editCellSubtitle"></small>
+                    <input type="text" id="editCellInput" class="form-control form-control-sm fw-bold" required>
+                    <div id="editCellPresets" class="d-flex flex-wrap gap-1 mt-2"></div>
+                    <div id="editCellError" class="text-danger small mt-2 d-none"></div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-xs" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-xs fw-bold" id="editCellSaveBtn">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endif %}
 
 <script>
     function stepPeriod(delta) {
@@ -405,6 +489,91 @@
         });
         table.setAttribute('data-sort-dir', isAsc ? 'asc' : 'desc');
         rows.forEach(r => tbody.appendChild(r));
+    }
+
+    // Inline Double-Click Editor for Card 3 (/api/update_cell)
+    let activeEditPayload = null;
+
+    document.querySelectorAll('.editable-cell').forEach(cell => {
+        cell.addEventListener('dblclick', function () {
+            const type = this.dataset.type;
+            const user = this.dataset.user;
+            const formal = this.dataset.formal;
+            const day = parseInt(this.dataset.day, 10);
+            const currentVal = (this.dataset.val || '').trim();
+
+            activeEditPayload = {
+                type: type,
+                username: user,
+                formal_name: formal,
+                day: day,
+                year: {{ rep_year }},
+                month: {{ rep_month }}
+            };
+
+            document.getElementById('editCellTitle').innerText = type === 'hours' ? 'Edit Working Hours / Status' : 'Edit Output Units';
+            document.getElementById('editCellSubtitle').innerText = `${formal} — Day ${String(day).padStart(2, '0')} ({{ report_period }})`;
+            const input = document.getElementById('editCellInput');
+            input.value = currentVal;
+            input.placeholder = type === 'hours' ? 'e.g. 8, 10, AL, MC, PH, NW' : 'e.g. 0, 5, 12';
+            document.getElementById('editCellError').classList.add('d-none');
+
+            const presetsDiv = document.getElementById('editCellPresets');
+            presetsDiv.innerHTML = '';
+            const presets = type === 'hours' ? ['8', '10', '12', 'AL', 'MC', 'PH', 'NW'] : ['0', '1', '2', '3', '5'];
+            presets.forEach(p => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn btn-outline-secondary btn-xs';
+                btn.innerText = p;
+                btn.onclick = () => { input.value = p; };
+                presetsDiv.appendChild(btn);
+            });
+
+            const modalEl = document.getElementById('editCellModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+            modalEl.addEventListener('shown.bs.modal', () => input.select(), { once: true });
+        });
+    });
+
+    const editCellForm = document.getElementById('editCellForm');
+    if (editCellForm) {
+        editCellForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+            if (!activeEditPayload) return;
+
+            const saveBtn = document.getElementById('editCellSaveBtn');
+            const errEl = document.getElementById('editCellError');
+            saveBtn.disabled = true;
+            saveBtn.innerText = 'Saving...';
+            errEl.classList.add('d-none');
+
+            try {
+                const resp = await fetch('/api/update_cell', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ...activeEditPayload,
+                        value: document.getElementById('editCellInput').value.trim()
+                    })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    location.reload();
+                } else {
+                    errEl.innerText = data.error || 'Update failed.';
+                    errEl.classList.remove('d-none');
+                    saveBtn.disabled = false;
+                    saveBtn.innerText = 'Save';
+                }
+            } catch (err) {
+                errEl.innerText = 'Network error while updating.';
+                errEl.classList.remove('d-none');
+                saveBtn.disabled = false;
+                saveBtn.innerText = 'Save';
+            }
+        });
     }
 </script>
 {% endblock %}

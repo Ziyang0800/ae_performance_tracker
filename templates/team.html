@@ -118,7 +118,12 @@
                             </td>
                             <td>{{ e.shift_hours }}h</td>
                             <td>{{ e.joined_date or 'N/A' }}</td>
-                            <td>{{ e.activation_date or 'N/A' }}</td>
+                            <td>
+                                {{ e.activation_date or 'N/A' }}
+                                {% if e.status == 'Pending Activation' %}
+                                    <span class="badge bg-warning text-dark d-block mt-1" style="font-size: 0.68rem;">Pending</span>
+                                {% endif %}
+                            </td>
                             <td class="text-end">
                                 <div class="btn-group btn-group-sm">
                                     <button type="button" class="btn btn-outline-primary"
@@ -127,6 +132,7 @@
                                             data-formal="{{ e.formal_name }}"
                                             data-display="{{ e.display_name or '' }}"
                                             data-username="{{ e.username or '' }}"
+                                            data-station-id="{{ e.station_id or '' }}"
                                             data-shift="{{ e.shift_hours }}"
                                             data-custom-pi="{{ e.custom_target_pi or '' }}"
                                             data-default-pi="{{ e.default_station_target or '3.0' }}"
@@ -164,7 +170,7 @@
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div>
                     <h6 class="fw-bold mb-0">Station Sequence, Targets & Names</h6>
-                    <small class="text-muted">Configure station-to-segment group mappings (CSG, EiSG+Scope, STDS LAB, Legacy, MEC Lab).</small>
+                    <small class="text-muted">Station-to-segment reference mapping (Option B quarterly reports group units by Model ID via <code>model_groups</code>).</small>
                 </div>
                 <button form="stationsForm" type="submit" class="btn btn-primary btn-sm fw-bold px-3">Save Station Settings</button>
             </div>
@@ -177,7 +183,7 @@
                             <tr>
                                 <th style="width: 75px;" class="text-center">Active</th>
                                 <th style="min-width: 180px;">Station Name</th>
-                                <th style="min-width: 200px;">Segment Group (Station Mapping)</th>
+                                <th style="min-width: 220px;">Segment Group (Reference / Fallback)</th>
                                 <th style="width: 140px;">Display Sequence</th>
                                 <th style="width: 160px;">Default Target P.I.</th>
                             </tr>
@@ -383,6 +389,16 @@
                             <input type="text" name="username" id="edit_username" class="form-control form-control-sm" placeholder="Optional for Admins">
                         </div>
                     </div>
+                    <div class="mb-3" id="editStationWrap">
+                        <label class="form-label fw-bold small">Initial Station Assignment</label>
+                        <select name="station_id" id="edit_station_id" class="form-select form-select-sm">
+                            <option value="">-- Unassigned / Admin --</option>
+                            {% for s in stations %}
+                            <option value="{{ s.id }}">{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted d-block mt-1" id="editStationHelp"></small>
+                    </div>
                     <div class="row g-2 mb-3">
                         <div class="col-6">
                             <label class="form-label fw-bold small">Shift Hours</label>
@@ -558,6 +574,7 @@
                         <div class="col">
                             <label class="form-label fw-bold">Activation Date</label>
                             <input type="date" name="activation_date" class="form-control">
+                            <small class="text-muted">Required for AEs to appear on Dashboard</small>
                         </div>
                     </div>
                     <div class="mb-2">
@@ -613,6 +630,18 @@
         document.getElementById('edit_display_name').value = d.display;
         document.getElementById('edit_display_name').placeholder = d.formal.split(' ')[0] || '';
         document.getElementById('edit_username').value = d.username;
+
+        const stSelect = document.getElementById('edit_station_id');
+        const stHelp = document.getElementById('editStationHelp');
+        stSelect.value = d.stationId || '';
+        if (d.stationId) {
+            stSelect.disabled = true;
+            stHelp.innerText = 'Station already assigned. Use the 🔁 Transfer button to move stations with history.';
+        } else {
+            stSelect.disabled = false;
+            stHelp.innerText = 'Assign an initial station (optional for Admins).';
+        }
+
         document.getElementById('edit_shift_hours').value = parseFloat(d.shift) === 12.0 ? '12.0' : '8.0';
         document.getElementById('edit_custom_target_pi').value = d.customPi;
         document.getElementById('edit_custom_target_pi').placeholder = `Station Default (${d.defaultPi})`;

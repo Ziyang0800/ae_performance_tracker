@@ -7,6 +7,7 @@ import json
 import io
 import os
 import warnings
+from collections import Counter
 from datetime import date, datetime
 from parser import ingest_attendance, ingest_calibrations, find_attendance_header_and_period, ingest_rejections
 from pptx_generator import generate_monthly_deck, generate_quarterly_deck
@@ -15,17 +16,29 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
-app = Flask(__name__)
-app.secret_key = "super_secret_performance_key"
-DB_PATH = "performance_tracker.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-TEMP_UPLOAD_DIR = "temp_uploads"
+app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_performance_key")
+DB_PATH = os.path.join(BASE_DIR, "performance_tracker.db")
+
+TEMP_UPLOAD_DIR = os.path.join(BASE_DIR, "temp_uploads")
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 
+CORE_GROUPS = [
+    "CSG",
+    "EiSG+Scope",
+    "STDS LAB",
+    "Legacy+Modular+PMPS (A)+MMA+ Others",
+]
+ALL_TARGET_GROUPS = CORE_GROUPS + ["MEC Lab"]
+
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def parse_iso_date(date_val):
     if pd.isna(date_val) or not date_val:
@@ -36,8 +49,38 @@ def parse_iso_date(date_val):
     except Exception:
         return None
 
+
 def normalize_str(s):
-    return re.sub(r'\s+', ' ', str(s).strip().replace('"', '')).lower()
+    return re.sub(r'\s+', ' ', str(s or "").strip().replace('"', '')).lower()
+
+
+def clean_username(u):
+    return str(u or "").strip().lower()
+
+
+def canonicalize_group_name(raw):
+    if not raw:
+        return None
+    s = re.sub(r'\s+', ' ', str(raw).strip()).upper()
+    if s == "CSG":
+        return "CSG"
+    if "EISG" in s or "SCOPE" in s:
+        return "EiSG+Scope"
+    if "STD" in s:
+        return "STDS LAB"
+    if "LEGACY" in s or "MODULAR" in s or "PMPS" in s or "MMA" in s:
+        return "Legacy+Modular+PMPS (A)+MMA+ Others"
+    if "MEC" in s:
+        return "MEC Lab"
+    return str(raw).strip()
+
+
+def _resolve_col(cols, candidates, default):
+    for c in candidates:
+        if c in cols:
+            return cols[c]
+    return default
+
 
 def is_working_day_status(raw_status):
     if not raw_status:
@@ -52,9 +95,11 @@ def is_working_day_status(raw_status):
     except ValueError:
         return False
 
+
 def format_display_date(d_val):
     d = parse_iso_date(d_val)
     return d.strftime("%d %b %Y").lstrip("0") if d else "N/A"
+
 
 def calculate_tenure(start_val, end_val=None):
     s = parse_iso_date(start_val)
@@ -72,6 +117,7 @@ def calculate_tenure(start_val, end_val=None):
         return f"{years} yr{'s' if years > 1 else ''}"
     return f"{max(1, months)} mo{'s' if months > 1 else ''}"
 
+
 def get_keysight_fiscal_info(year, month):
     if month in [11, 12]:
         q, fy = "Q1", year + 1
@@ -85,154 +131,143 @@ def get_keysight_fiscal_info(year, month):
         q, fy = "Q4", year
     return q, fy, f"{q} FY'{str(fy)[-2:]}"
 
+
 def migrate_and_clean_database():
     conn = get_db()
-    cur = conn.cursor()
-    
-    cur.execute("PRAGMA table_info(stations)")
-    st_cols = [r["name"] for r in cur.fetchall()]
-    if "sort_order" not in st_cols:
-        cur.execute("ALTER TABLE stations ADD COLUMN sort_order INTEGER DEFAULT 99")
-    if "target_pi" not in st_cols:
-        cur.execute("ALTER TABLE stations ADD COLUMN target_pi REAL DEFAULT 3.0")
-    if "is_active" not in st_cols:
-        cur.execute("ALTER TABLE stations ADD COLUMN is_active BOOLEAN DEFAULT 1")
-    if "group_name" not in st_cols:
-        cur.execute("ALTER TABLE stations ADD COLUMN group_name TEXT")
-        cur.execute("UPDATE stations SET group_name = 'CSG' WHERE UPPER(TRIM(name)) LIKE '%SIGNAL%' OR UPPER(TRIM(name)) LIKE '%MXG%'")
-        cur.execute("UPDATE stations SET group_name = 'EiSG+Scope' WHERE UPPER(TRIM(name)) LIKE '%PNA%'")
-        cur.execute("UPDATE stations SET group_name = 'STDS LAB' WHERE UPPER(TRIM(name)) LIKE '%STDS%'")
-        cur.execute("UPDATE stations SET group_name = 'Legacy+Modular+PMPS (A)+MMA+ Others' WHERE UPPER(TRIM(name)) LIKE '%POWER%' OR UPPER(TRIM(name)) LIKE '%ZCAL%'")
+    try:
+        cur = conn.cursor()
 
-    cur.execute("UPDATE stations SET name = 'Signal Analyzer' WHERE name = 'SA'")
-    cur.execute("UPDATE stations SET is_active = 0 WHERE name LIKE '%MECH%'")
+        cur.execute("PRAGMA table_info(stations)")
+        st_cols = [r["name"] for r in cur.fetchall()]
+        if "sort_order" not in st_cols:
+            cur.execute("ALTER TABLE stations ADD COLUMN sort_order INTEGER DEFAULT 99")
+        if "target_pi" not in st_cols:
+            cur.execute("ALTER TABLE stations ADD COLUMN target_pi REAL DEFAULT 3.0")
+        if "is_active" not in st_cols:
+            cur.execute("ALTER TABLE stations ADD COLUMN is_active BOOLEAN DEFAULT 1")
+        if "group_name" not in st_cols:
+            cur.execute("ALTER TABLE stations ADD COLUMN group_name TEXT")
+            cur.execute("UPDATE stations SET group_name = 'CSG' WHERE UPPER(TRIM(name)) LIKE '%SIGNAL%' OR UPPER(TRIM(name)) LIKE '%MXG%'")
+            cur.execute("UPDATE stations SET group_name = 'EiSG+Scope' WHERE UPPER(TRIM(name)) LIKE '%PNA%'")
+            cur.execute("UPDATE stations SET group_name = 'STDS LAB' WHERE UPPER(TRIM(name)) LIKE '%STDS%'")
+            cur.execute("UPDATE stations SET group_name = 'Legacy+Modular+PMPS (A)+MMA+ Others' WHERE UPPER(TRIM(name)) LIKE '%POWER%' OR UPPER(TRIM(name)) LIKE '%ZCAL%'")
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS engineer_station_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        engineer_id INTEGER NOT NULL,
-        station_id INTEGER NOT NULL,
-        effective_year INTEGER NOT NULL,
-        effective_month INTEGER NOT NULL,
-        FOREIGN KEY (engineer_id) REFERENCES engineers (id),
-        FOREIGN KEY (station_id) REFERENCES stations (id),
-        UNIQUE(engineer_id, effective_year, effective_month)
-    );
-    """)
+        cur.execute("UPDATE stations SET name = 'Signal Analyzer' WHERE name = 'SA'")
+        cur.execute("UPDATE stations SET is_active = 0 WHERE name LIKE '%MECH%'")
 
-    # One-time safe historical repair
-    mxg_st = cur.execute("SELECT id FROM stations WHERE name LIKE '%MXG%'").fetchone()
-    if mxg_st:
         cur.execute("""
-            INSERT OR IGNORE INTO engineer_station_history (engineer_id, station_id, effective_year, effective_month)
-            SELECT h.engineer_id, ?, 2024, 11
-            FROM engineer_station_history h
-            JOIN stations s ON h.station_id = s.id
-            WHERE s.name LIKE '%POWER SENSOR%'
-              AND NOT EXISTS (
-                  SELECT 1 FROM engineer_station_history h2 
-                  WHERE h2.engineer_id = h.engineer_id AND (h2.effective_year < 2026 OR (h2.effective_year = 2026 AND h2.effective_month < 9))
-              )
-        """, (mxg_st[0],))
+        CREATE TABLE IF NOT EXISTS engineer_station_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            engineer_id INTEGER NOT NULL,
+            station_id INTEGER NOT NULL,
+            effective_year INTEGER NOT NULL,
+            effective_month INTEGER NOT NULL,
+            FOREIGN KEY (engineer_id) REFERENCES engineers (id),
+            FOREIGN KEY (station_id) REFERENCES stations (id),
+            UNIQUE(engineer_id, effective_year, effective_month)
+        );
+        """)
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS ignored_technicians (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        reason TEXT DEFAULT 'FTE / Untracked Tech'
-    );
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS rejection_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        service_id TEXT, model_id TEXT, serial_no TEXT, cal_by TEXT,
-        reject_date TEXT, reject_year INTEGER, reject_month INTEGER,
-        failure_reason TEXT, remark TEXT
-    );
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS model_groups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        model_id TEXT UNIQUE NOT NULL,
-        group_name TEXT NOT NULL
-    );
-    """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_model_groups_model ON model_groups(model_id);")
-
-    cur.execute("PRAGMA table_info(engineers)")
-    cols = [r["name"] for r in cur.fetchall()]
-    if "joined_date" not in cols:
-        cur.execute("ALTER TABLE engineers ADD COLUMN joined_date TEXT")
-    if "activation_date" not in cols:
-        cur.execute("ALTER TABLE engineers ADD COLUMN activation_date TEXT")
-    if "resigned_date" not in cols:
-        cur.execute("ALTER TABLE engineers ADD COLUMN resigned_date TEXT")
-    if "custom_target_pi" not in cols:
-        cur.execute("ALTER TABLE engineers ADD COLUMN custom_target_pi REAL")
-    if "display_name" not in cols:
-        cur.execute("ALTER TABLE engineers ADD COLUMN display_name TEXT")
-    if "track_performance" not in cols:
-        cur.execute("ALTER TABLE engineers ADD COLUMN track_performance BOOLEAN DEFAULT 1")
-
-    cur.execute("UPDATE engineers SET track_performance = 1 WHERE track_performance IS NULL")
-
-    cur.execute("PRAGMA table_info(calibrations)")
-    cal_cols = [r["name"] for r in cur.fetchall()]
-    if "sender_dept" not in cal_cols:
-        cur.execute("ALTER TABLE calibrations ADD COLUMN sender_dept TEXT")
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS kpi_configs (
-        kpi_key TEXT PRIMARY KEY,
-        kpi_name TEXT NOT NULL,
-        target_label TEXT DEFAULT 'Q2 FY''26 Target',
-        target_value REAL NOT NULL,
-        unit TEXT DEFAULT '%'
-    );
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS system_settings (
-        setting_key TEXT PRIMARY KEY,
-        setting_val TEXT NOT NULL
-    );
-    """)
-    cur.execute("INSERT OR IGNORE INTO system_settings (setting_key, setting_val) VALUES ('target_headcount', '23')")
-    cur.execute("UPDATE kpi_configs SET kpi_name = 'KGSO External CRD' WHERE kpi_key = 'kgso_ext'")
-
-    default_kpis = [
-        ("ete_priority", "ETE Priority Management System", "Q2 FY'26 Target", 90.0, "%"),
-        ("ete_crd_tat", "Electrical ETE CRD TAT", "Q2 FY'26 Target", 85.0, "%"),
-        ("trade_unit", "Trade Unit (CRD)", "Q2 FY'26 Target", 90.0, "%"),
-        ("krs_unit", "KRS Unit (CRD)", "Q2 FY'26 Target", 92.0, "%"),
-        ("kgso_ext", "KGSO External CRD", "Q2 FY'26 Target", 95.0, "%"),
-        ("pi", "Productivity Index", "Q2 FY'26 Target", 3.1, "units")
-    ]
-    for k_key, k_name, k_label, k_val, k_unit in default_kpis:
         cur.execute("""
-            INSERT OR IGNORE INTO kpi_configs (kpi_key, kpi_name, target_label, target_value, unit)
-            VALUES (?, ?, ?, ?, ?)
-        """, (k_key, k_name, k_label, k_val, k_unit))
+        CREATE TABLE IF NOT EXISTS ignored_technicians (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            reason TEXT DEFAULT 'FTE / Untracked Tech'
+        );
+        """)
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS quality_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        engineer_id INTEGER NOT NULL,
-        year INTEGER NOT NULL,
-        month INTEGER NOT NULL,
-        mistakes INTEGER DEFAULT 0,
-        FOREIGN KEY (engineer_id) REFERENCES engineers (id),
-        UNIQUE(engineer_id, year, month)
-    );
-    """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS rejection_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            service_id TEXT, model_id TEXT, serial_no TEXT, cal_by TEXT,
+            reject_date TEXT, reject_year INTEGER, reject_month INTEGER,
+            failure_reason TEXT, remark TEXT
+        );
+        """)
 
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_cal_period_user ON calibrations(cal_year, cal_month, cal_by);")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_att_period_name ON attendance(year, month, formal_name);")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS model_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_id TEXT UNIQUE NOT NULL,
+            group_name TEXT NOT NULL
+        );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_model_groups_model ON model_groups(model_id);")
 
-    conn.commit()
-    conn.close()
+        cur.execute("PRAGMA table_info(engineers)")
+        cols = [r["name"] for r in cur.fetchall()]
+        if "joined_date" not in cols:
+            cur.execute("ALTER TABLE engineers ADD COLUMN joined_date TEXT")
+        if "activation_date" not in cols:
+            cur.execute("ALTER TABLE engineers ADD COLUMN activation_date TEXT")
+        if "resigned_date" not in cols:
+            cur.execute("ALTER TABLE engineers ADD COLUMN resigned_date TEXT")
+        if "custom_target_pi" not in cols:
+            cur.execute("ALTER TABLE engineers ADD COLUMN custom_target_pi REAL")
+        if "display_name" not in cols:
+            cur.execute("ALTER TABLE engineers ADD COLUMN display_name TEXT")
+        if "track_performance" not in cols:
+            cur.execute("ALTER TABLE engineers ADD COLUMN track_performance BOOLEAN DEFAULT 1")
+
+        cur.execute("UPDATE engineers SET track_performance = 1 WHERE track_performance IS NULL")
+
+        cur.execute("PRAGMA table_info(calibrations)")
+        cal_cols = [r["name"] for r in cur.fetchall()]
+        if "sender_dept" not in cal_cols:
+            cur.execute("ALTER TABLE calibrations ADD COLUMN sender_dept TEXT")
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS kpi_configs (
+            kpi_key TEXT PRIMARY KEY,
+            kpi_name TEXT NOT NULL,
+            target_label TEXT DEFAULT 'Q2 FY''26 Target',
+            target_value REAL NOT NULL,
+            unit TEXT DEFAULT '%'
+        );
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS system_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_val TEXT NOT NULL
+        );
+        """)
+        cur.execute("INSERT OR IGNORE INTO system_settings (setting_key, setting_val) VALUES ('target_headcount', '23')")
+        cur.execute("UPDATE kpi_configs SET kpi_name = 'KGSO External CRD' WHERE kpi_key = 'kgso_ext'")
+
+        default_kpis = [
+            ("ete_priority", "ETE Priority Management System", "Q2 FY'26 Target", 90.0, "%"),
+            ("ete_crd_tat", "Electrical ETE CRD TAT", "Q2 FY'26 Target", 85.0, "%"),
+            ("trade_unit", "Trade Unit (CRD)", "Q2 FY'26 Target", 90.0, "%"),
+            ("krs_unit", "KRS Unit (CRD)", "Q2 FY'26 Target", 92.0, "%"),
+            ("kgso_ext", "KGSO External CRD", "Q2 FY'26 Target", 95.0, "%"),
+            ("pi", "Productivity Index", "Q2 FY'26 Target", 3.1, "units")
+        ]
+        for k_key, k_name, k_label, k_val, k_unit in default_kpis:
+            cur.execute("""
+                INSERT OR IGNORE INTO kpi_configs (kpi_key, kpi_name, target_label, target_value, unit)
+                VALUES (?, ?, ?, ?, ?)
+            """, (k_key, k_name, k_label, k_val, k_unit))
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS quality_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            engineer_id INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            mistakes INTEGER DEFAULT 0,
+            FOREIGN KEY (engineer_id) REFERENCES engineers (id),
+            UNIQUE(engineer_id, year, month)
+        );
+        """)
+
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cal_period_user ON calibrations(cal_year, cal_month, cal_by);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_att_period_name ON attendance(year, month, formal_name);")
+
+        conn.commit()
+    finally:
+        conn.close()
+
 
 migrate_and_clean_database()
 
@@ -242,6 +277,7 @@ TAT_CATEGORIES = [
     {"key": "PSC_EXT", "label": "PSC_EXT", "weight": 35.0},
     {"key": "PSC_INT", "label": "PSC_INT", "weight": 15.0}
 ]
+
 
 def resolve_engineer_station(conn, engineer_id, fallback_station_id, rep_year, rep_month):
     row = conn.execute("""
@@ -256,15 +292,16 @@ def resolve_engineer_station(conn, engineer_id, fallback_station_id, rep_year, r
 
     if row:
         return row["station_id"], row["station_name"], row["sort_order"], row["target_pi"], row["is_active"]
-    
+
     fb = conn.execute("""
         SELECT s.id as station_id, s.name as station_name, s.sort_order, s.target_pi, s.is_active
         FROM stations s WHERE s.id = ?
     """, (fallback_station_id,)).fetchone()
-    
+
     if fb:
         return fb["station_id"], fb["station_name"], fb["sort_order"], fb["target_pi"], fb["is_active"]
     return None, "Unassigned", 99, 3.0, 1
+
 
 @app.route("/", strict_slashes=False)
 def dashboard():
@@ -295,7 +332,7 @@ def dashboard():
     _, num_days = calendar.monthrange(rep_year, rep_month)
     month_start, month_end = date(rep_year, rep_month, 1), date(rep_year, rep_month, num_days)
     days_list = list(range(1, num_days + 1))
-    
+
     df_att_raw = pd.read_sql("SELECT day, raw_status FROM attendance WHERE month = ? AND year = ?", conn, params=[rep_month, rep_year])
     ph_days = set(df_att_raw[df_att_raw["raw_status"].astype(str).str.strip().str.upper() == "PH"]["day"].astype(int).tolist()) if not df_att_raw.empty else set()
 
@@ -312,34 +349,43 @@ def dashboard():
     mistakes_map = dict(zip(df_mistakes["engineer_id"], df_mistakes["mistakes"])) if not df_mistakes.empty else {}
 
     all_engineers = conn.execute("SELECT * FROM engineers WHERE track_performance = 1 ORDER BY formal_name").fetchall()
-    roster_usernames = set([e["username"].strip().lower() for e in all_engineers])
-    muted_usernames = set([m["username"].strip().lower() for m in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+    roster_usernames = {clean_username(e["username"]) for e in all_engineers if clean_username(e["username"])}
+    muted_usernames = {clean_username(m["username"]) for m in conn.execute("SELECT username FROM ignored_technicians").fetchall()}
 
     df_cal_counts_all = pd.read_sql("SELECT cal_by, COUNT(*) as units FROM calibrations WHERE cal_month = ? AND cal_year = ? GROUP BY cal_by", conn, params=[rep_month, rep_year])
     user_cal_totals = {}
     unmapped_techs = []
     if not df_cal_counts_all.empty:
         for _, row in df_cal_counts_all.iterrows():
-            c_by, u_cnt = str(row["cal_by"]).strip().lower(), int(row["units"])
-            user_cal_totals[c_by] = u_cnt
-            if c_by not in roster_usernames and c_by not in muted_usernames:
+            c_by, u_cnt = clean_username(row["cal_by"]), int(row["units"])
+            user_cal_totals[c_by] = user_cal_totals.get(c_by, 0) + u_cnt
+            if c_by and c_by not in roster_usernames and c_by not in muted_usernames:
                 unmapped_techs.append({"username": str(row["cal_by"]).strip(), "units": u_cnt})
 
     eligible_staff = []
     for e in all_engineers:
-        u_clean = str(e["username"]).strip().lower()
+        u_clean = clean_username(e["username"])
+        if not u_clean or u_clean in muted_usernames:
+            continue
         act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
         units_done = user_cal_totals.get(u_clean, 0)
 
-        if not act_d or act_d > month_end: continue
-        if res_d and res_d < month_start and units_done == 0: continue
+        if not act_d or act_d > month_end:
+            continue
+        if res_d and res_d < month_start and units_done == 0:
+            continue
 
         st_id, st_name, st_order, st_target, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], rep_year, rep_month)
-        if not st_active: continue
+        if not st_active:
+            continue
 
         ind_target = e["custom_target_pi"] if e["custom_target_pi"] is not None else st_target
         e_dict = dict(e)
-        e_dict.update({"station_id": st_id, "station_name": st_name, "station_sort_order": st_order, "station_target_pi": st_target, "target_pi": ind_target})
+        e_dict.update({
+            "username_clean": u_clean,
+            "station_id": st_id, "station_name": st_name,
+            "station_sort_order": st_order, "station_target_pi": st_target, "target_pi": ind_target
+        })
         eligible_staff.append(e_dict)
 
     if not eligible_staff:
@@ -347,36 +393,37 @@ def dashboard():
         return render_template("dashboard.html", empty=True, days_info=days_info, summary=[], station_metrics={}, warnings=[], report_period=report_period, tat_categories=TAT_CATEGORIES, available_periods=available_periods, selected_period=selected_period["val"], rep_year=rep_year, rep_month=rep_month, unmapped_techs=unmapped_techs, dept_total_units=0, dept_avg_pi=0.0)
 
     eligible_staff.sort(key=lambda x: (x["station_sort_order"], x["station_name"], x["formal_name"]))
-    usernames = [s["username"] for s in eligible_staff]
+    clean_usernames = [s["username_clean"] for s in eligible_staff]
 
-    q_cal_all = f"SELECT cal_by, cal_day, category, mos FROM calibrations WHERE cal_by IN ({','.join(['?']*len(usernames))}) AND cal_month = ? AND cal_year = ?"
-    df_cal_all = pd.read_sql(q_cal_all, conn, params=usernames + [rep_month, rep_year])
+    q_cal_all = f"SELECT LOWER(TRIM(cal_by)) as cal_by_clean, cal_day, category, mos FROM calibrations WHERE LOWER(TRIM(cal_by)) IN ({','.join(['?']*len(clean_usernames))}) AND cal_month = ? AND cal_year = ?"
+    df_cal_all = pd.read_sql(q_cal_all, conn, params=clean_usernames + [rep_month, rep_year])
 
     if not df_cal_all.empty:
-        df_cal_counts = df_cal_all.groupby(["cal_by", "cal_day"]).size().reset_index(name="units")
-        pivot_cal = df_cal_counts.pivot(index="cal_by", columns="cal_day", values="units").reindex(index=usernames, columns=days_list).fillna(0).astype(int)
+        df_cal_counts = df_cal_all.groupby(["cal_by_clean", "cal_day"]).size().reset_index(name="units")
+        pivot_cal = df_cal_counts.pivot(index="cal_by_clean", columns="cal_day", values="units").reindex(index=clean_usernames, columns=days_list).fillna(0).astype(int)
     else:
-        pivot_cal = pd.DataFrame(0, index=usernames, columns=days_list)
+        pivot_cal = pd.DataFrame(0, index=clean_usernames, columns=days_list)
 
     df_att_all = pd.read_sql("SELECT formal_name, day, raw_status, capped_hours FROM attendance WHERE month = ? AND year = ?", conn, params=[rep_month, rep_year])
     if not df_att_all.empty:
         df_att_all["norm_name"] = df_att_all["formal_name"].apply(normalize_str)
 
-    individual_summary, warnings = [], []
+    individual_summary, warnings_list = [], []
     station_metrics = {}
 
     for s in eligible_staff:
-        eng_id, u, fn, dn = s["id"], s["username"], s["formal_name"], s["display_name"] or s["formal_name"].split()[0]
+        eng_id, u, u_clean = s["id"], s["username"], s["username_clean"]
+        fn, dn = s["formal_name"], s["display_name"] or s["formal_name"].split()[0]
         fn_norm, st, st_order, ind_target, shift = normalize_str(fn), s["station_name"], s["station_sort_order"], s["target_pi"], s["shift_hours"]
         res_d, act_d = parse_iso_date(s["resigned_date"]), parse_iso_date(s["activation_date"])
-        
+
         lifecycle_badge = None
         if res_d and res_d <= month_end:
             lifecycle_badge = {"text": f"Resigned on {res_d.strftime('%d/%m/%Y')}", "class": "danger"}
         elif act_d and month_start <= act_d <= month_end:
             lifecycle_badge = {"text": f"Activated on {act_d.strftime('%d/%m/%Y')}", "class": "info text-dark"}
 
-        units = int(pivot_cal.loc[u].sum()) if u in pivot_cal.index else 0
+        units = int(pivot_cal.loc[u_clean].sum()) if u_clean in pivot_cal.index else 0
         mistakes = mistakes_map.get(eng_id, 0)
         quality_pct = max(0.0, round(((units - mistakes) / units) * 100.0, 1)) if units > 0 else 100.0
 
@@ -389,7 +436,7 @@ def dashboard():
         else:
             att_map, hrs = {}, 0.0
             if not lifecycle_badge or "Resigned" not in lifecycle_badge["text"]:
-                warnings.append(f"Missing Attendance Record: {fn} ({st})")
+                warnings_list.append(f"Missing Attendance Record: {fn} ({st})")
 
         raw_eff_days = (hrs / shift) if shift > 0 else 0.0
         eff_days = int(round(raw_eff_days))
@@ -403,7 +450,7 @@ def dashboard():
         station_metrics[st]["target_units_sum"] += (raw_eff_days * ind_target)
         station_metrics[st]["individual_targets"].append(ind_target)
 
-        raw_out_list = [int(pivot_cal.loc[u].get(d, 0)) for d in days_list] if u in pivot_cal.index else [0]*num_days
+        raw_out_list = [int(pivot_cal.loc[u_clean].get(d, 0)) for d in days_list] if u_clean in pivot_cal.index else [0] * num_days
         raw_att_list = [str(att_map.get(d, "-")) for d in days_list]
         working_flags = [is_working_day_status(raw_att_list[i]) for i in range(num_days)]
 
@@ -434,7 +481,7 @@ def dashboard():
                 "has_val": out_val > 0
             })
 
-        user_cals = df_cal_all[df_cal_all["cal_by"] == u] if not df_cal_all.empty else pd.DataFrame()
+        user_cals = df_cal_all[df_cal_all["cal_by_clean"] == u_clean] if not df_cal_all.empty else pd.DataFrame()
         tat_scores = {}
         weighted_num, active_weights = 0.0, 0.0
 
@@ -477,34 +524,42 @@ def dashboard():
 
     conn.close()
     return render_template(
-        "dashboard.html", days_info=days_info, days_list=days_list, summary=individual_summary,
-        station_metrics=sorted_station_metrics, warnings=warnings, report_period=report_period,
+        "dashboard.html", empty=False, days_info=days_info, days_list=days_list, summary=individual_summary,
+        station_metrics=sorted_station_metrics, warnings=warnings_list, report_period=report_period,
         tat_categories=TAT_CATEGORIES, available_periods=available_periods, selected_period=selected_period["val"],
         rep_year=rep_year, rep_month=rep_month, unmapped_techs=unmapped_techs,
         dept_total_units=dept_total_units, dept_avg_pi=dept_avg_pi
     )
 
+
 @app.route("/api/update_cell", methods=["POST"])
 def update_cell():
     data = request.get_json()
-    if not data: return jsonify({"success": False, "error": "No data"}), 400
+    if not data:
+        return jsonify({"success": False, "error": "No data"}), 400
 
     c_type, username, formal_name = data.get("type"), data.get("username"), data.get("formal_name")
-    day, year, month, val = int(data.get("day")), int(data.get("year")), int(data.get("month")), str(data.get("value", "")).strip()
+    try:
+        day, year, month = int(data.get("day")), int(data.get("year")), int(data.get("month"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid date fields"}), 400
+    val = str(data.get("value", "")).strip()
 
     conn = get_db()
     cur = conn.cursor()
     try:
         if c_type == "hours":
-            eng = cur.execute("SELECT shift_hours FROM engineers WHERE username = ?", (username,)).fetchone()
+            eng = cur.execute("SELECT shift_hours FROM engineers WHERE LOWER(TRIM(username)) = LOWER(TRIM(?))", (username,)).fetchone()
             shift = eng[0] if eng else 8.0
             if val.upper() in ["NW", "AL", "MC", "PH", "PL", "CP", "UPL", "ABS", "RES"]:
                 raw_st, act_h, cap_h = val.upper(), 0.0, 0.0
             else:
-                try: h = float(val) if val else 0.0
-                except ValueError: h = 0.0
+                try:
+                    h = max(0.0, float(val)) if val else 0.0
+                except ValueError:
+                    return jsonify({"success": False, "error": "Enter numeric hours or leave code (AL, MC, PH, NW)."}), 400
                 act_h = h
-                cap_h = min(h, 10.0) if shift == 8.0 else h
+                cap_h = min(h, 10.0) if abs(shift - 8.0) < 0.01 else h
                 raw_st = f"{cap_h:.1f}".rstrip('0').rstrip('.') if cap_h > 0 else ""
 
             row = cur.execute("SELECT id FROM attendance WHERE LOWER(TRIM(formal_name)) = LOWER(TRIM(?)) AND day = ? AND month = ? AND year = ?", (formal_name, day, month, year)).fetchone()
@@ -514,8 +569,10 @@ def update_cell():
                 cur.execute("INSERT INTO attendance (formal_name, day, month, year, raw_status, actual_hours, capped_hours) VALUES (?, ?, ?, ?, ?, ?, ?)", (formal_name, day, month, year, raw_st, act_h, cap_h))
 
         elif c_type == "output":
-            target_count = max(0, int(val)) if val.isdigit() else 0
-            cur_rows = cur.execute("SELECT id FROM calibrations WHERE cal_by = ? AND cal_day = ? AND cal_month = ? AND cal_year = ?", (username, day, month, year)).fetchall()
+            if not val.isdigit():
+                return jsonify({"success": False, "error": "Output must be a non-negative integer."}), 400
+            target_count = max(0, int(val))
+            cur_rows = cur.execute("SELECT id FROM calibrations WHERE LOWER(TRIM(cal_by)) = LOWER(TRIM(?)) AND cal_day = ? AND cal_month = ? AND cal_year = ?", (username, day, month, year)).fetchall()
             current_count = len(cur_rows)
             if target_count > current_count:
                 for _ in range(target_count - current_count):
@@ -525,11 +582,12 @@ def update_cell():
                 cur.execute(f"DELETE FROM calibrations WHERE id IN ({','.join(['?']*len(ids_to_del))})", ids_to_del)
 
         conn.commit()
-        conn.close()
         return jsonify({"success": True})
     except Exception as e:
-        conn.close()
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        conn.close()
+
 
 @app.route("/mute_technician")
 def mute_technician():
@@ -544,6 +602,7 @@ def mute_technician():
         flash(f"Technician '{username}' muted.", "info")
     return redirect(url_for("upload") if redir == "preflight" else url_for("dashboard", period=period))
 
+
 @app.route("/unmute_technician/<int:m_id>")
 def unmute_technician(m_id):
     conn = get_db()
@@ -553,12 +612,15 @@ def unmute_technician(m_id):
     flash("Technician unmuted successfully.", "success")
     return redirect(url_for("team"))
 
+
 @app.route("/export_excel", strict_slashes=False)
 def export_excel():
     conn = get_db()
     req_period = request.args.get("period", "2026-08")
-    try: y, m = [int(x) for x in req_period.split("-")]
-    except ValueError: y, m = 2026, 8
+    try:
+        y, m = [int(x) for x in req_period.split("-")]
+    except ValueError:
+        y, m = 2026, 8
 
     wb = openpyxl.Workbook()
     navy_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
@@ -576,18 +638,25 @@ def export_excel():
         c.fill, c.font, c.alignment = navy_fill, white_font, center
 
     all_engineers = conn.execute("SELECT e.*, s.name as station_name, s.target_pi as st_target, s.sort_order FROM engineers e LEFT JOIN stations s ON e.station_id = s.id WHERE e.track_performance = 1 AND s.is_active = 1 ORDER BY s.sort_order ASC, s.name ASC, e.formal_name ASC").fetchall()
-    df_cals = pd.read_sql("SELECT cal_by, category, mos, cal_day FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[y, m])
-    u_map = df_cals["cal_by"].value_counts().to_dict() if not df_cals.empty else {}
-    df_att = pd.read_sql("SELECT formal_name, SUM(capped_hours) as hrs FROM attendance WHERE year = ? AND month = ?", conn, params=[y, m])
-    h_map = dict(zip(df_att["formal_name"].str.strip().str.lower(), df_att["hrs"])) if not df_att.empty else {}
+    df_cals = pd.read_sql("SELECT LOWER(TRIM(cal_by)) as cal_by_clean, category, mos, cal_day FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[y, m])
+    u_map = df_cals["cal_by_clean"].value_counts().to_dict() if not df_cals.empty else {}
+
+    df_att = pd.read_sql("SELECT formal_name, SUM(capped_hours) as hrs FROM attendance WHERE year = ? AND month = ? GROUP BY formal_name", conn, params=[y, m])
+    h_map = {}
+    if not df_att.empty:
+        for _, row in df_att.iterrows():
+            k = normalize_str(row["formal_name"])
+            h_map[k] = h_map.get(k, 0.0) + float(row["hrs"] or 0.0)
+
     df_mis = pd.read_sql("SELECT engineer_id, mistakes FROM quality_logs WHERE year = ? AND month = ?", conn, params=[y, m])
     m_map = dict(zip(df_mis["engineer_id"], df_mis["mistakes"])) if not df_mis.empty else {}
 
     r_idx = 2
     for e in all_engineers:
-        u, fn, st = e["username"], e["formal_name"], e["station_name"] or "Unassigned"
+        u_clean = clean_username(e["username"])
+        fn, st = e["formal_name"], e["station_name"] or "Unassigned"
         target_pi = e["custom_target_pi"] if e["custom_target_pi"] is not None else (e["st_target"] or 3.0)
-        units = u_map.get(u, 0)
+        units = u_map.get(u_clean, 0)
         hrs = h_map.get(normalize_str(fn), 0.0)
         mistakes = m_map.get(e["id"], 0)
         q_pct = max(0.0, round(((units - mistakes) / units) * 100.0, 1)) if units > 0 else 100.0
@@ -599,8 +668,10 @@ def export_excel():
             for c_idx in range(1, 11):
                 c = ws_pi.cell(row=r_idx, column=c_idx)
                 c.font, c.alignment, c.border = reg_font, center, thin_border
-                if c_idx == 5: c.font = green_font if q_pct >= 98.0 else red_font
-                elif c_idx == 10: c.font = green_font if actual_pi >= target_pi else red_font
+                if c_idx == 5:
+                    c.font = green_font if q_pct >= 98.0 else red_font
+                elif c_idx == 10:
+                    c.font = green_font if actual_pi >= target_pi else red_font
             r_idx += 1
 
     ws_tat = wb.create_sheet(title="TAT Compliance")
@@ -611,8 +682,9 @@ def export_excel():
 
     r_tat_idx = 2
     for e in all_engineers:
-        u, fn, st = e["username"], e["formal_name"], e["station_name"] or "Unassigned"
-        u_cals = df_cals[df_cals["cal_by"] == u] if not df_cals.empty else pd.DataFrame()
+        u_clean = clean_username(e["username"])
+        fn, st = e["formal_name"], e["station_name"] or "Unassigned"
+        u_cals = df_cals[df_cals["cal_by_clean"] == u_clean] if not df_cals.empty else pd.DataFrame()
         tot_units = len(u_cals)
         cat_scores = {}
         w_num, act_w = 0.0, 0.0
@@ -624,7 +696,8 @@ def export_excel():
                 cat_scores[lbl] = f"{pct}%"
                 w_num += pct * (w / 100.0)
                 act_w += (w / 100.0)
-            else: cat_scores[lbl] = "N/A"
+            else:
+                cat_scores[lbl] = "N/A"
 
         tat_val = int(round(w_num / act_w)) if act_w > 0 else None
         tat_str = f"{tat_val}%" if tat_val is not None else "N/A"
@@ -634,7 +707,8 @@ def export_excel():
             for c_idx in range(1, 9):
                 c = ws_tat.cell(row=r_tat_idx, column=c_idx)
                 c.font, c.alignment, c.border = reg_font, center, thin_border
-                if c_idx == 8 and tat_val is not None: c.font = green_font if tat_val >= 90 else red_font
+                if c_idx == 8 and tat_val is not None:
+                    c.font = green_font if tat_val >= 90 else red_font
             r_tat_idx += 1
 
     for sheet in [ws_pi, ws_tat]:
@@ -647,6 +721,7 @@ def export_excel():
     wb.save(excel_stream)
     excel_stream.seek(0)
     return send_file(excel_stream, as_attachment=True, download_name=f"Performance_Report_{calendar.month_abbr[m]}_{y}.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 
 @app.route("/export_engineer_calibrations/<int:eng_id>", strict_slashes=False)
 def export_engineer_calibrations(eng_id):
@@ -662,7 +737,7 @@ def export_engineer_calibrations(eng_id):
         SELECT service_id as [Service ID], model_id as [Model ID], serial_no as [Serial No], 
                cal_date as [Cal Date], cal_day as [Day], cal_month as [Month], cal_year as [Year], 
                category as [Category], CASE WHEN mos = 1 THEN 'Met' ELSE 'Late' END as [TAT Status (MOS)], sender_dept as [Sender Dept]
-        FROM calibrations WHERE cal_by = ? ORDER BY cal_date DESC
+        FROM calibrations WHERE LOWER(TRIM(cal_by)) = LOWER(TRIM(?)) ORDER BY cal_date DESC
     """, conn, params=[u])
     conn.close()
 
@@ -694,10 +769,9 @@ def export_engineer_calibrations(eng_id):
     clean_fn = re.sub(r'[^a-zA-Z0-9_]', '_', fn)
     return send_file(excel_stream, as_attachment=True, download_name=f"Calibrations_{clean_fn}.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+
 # =============================================================================
-# UNIFIED QUARTERLY ENGINE (WEIGHTED TAT, QOQ DELTAS, OVERALL ROW)
-# =============================================================================
-# UNIFIED QUARTERLY ENGINE (WEIGHTED TAT, QOQ DELTAS, OVERALL ROW)
+# UNIFIED QUARTERLY ENGINE (OPTION B: MODEL_GROUPS + PROPORTIONAL LABOR SHARE)
 # =============================================================================
 def calculate_quarterly_engine(conn, selected_quarter):
     periods_db = conn.execute("SELECT DISTINCT cal_year as yr, cal_month as mo FROM calibrations WHERE cal_year IS NOT NULL AND cal_month IS NOT NULL ORDER BY yr ASC, mo ASC").fetchall()
@@ -716,9 +790,6 @@ def calculate_quarterly_engine(conn, selected_quarter):
     sorted_quarters = list(fiscal_quarters_map.values())
     sorted_quarters.sort(key=lambda x: (x["fiscal_yr"], x["q_num"]))
 
-    # -------------------------------------------------------------
-    # 1. FISCAL PERIOD RESOLUTION (QUARTER VS FULL FISCAL YEAR)
-    # -------------------------------------------------------------
     if selected_quarter and selected_quarter.startswith("FULL_FY_"):
         target_fy = int(selected_quarter.replace("FULL_FY_", ""))
         q_key = selected_quarter
@@ -732,84 +803,153 @@ def calculate_quarterly_engine(conn, selected_quarter):
             elif fy == target_fy - 1:
                 prev_quarter_months.append((cal_y, m))
         num_months_in_period = max(len(quarter_months), 1)
-        period_suffix = "YoY"
     else:
         q_key = selected_quarter if selected_quarter in fiscal_quarters_map else sorted_quarters[-1]["key"]
         quarter_months = fiscal_quarters_map[q_key]["months"]
         current_idx = next((i for i, q in enumerate(sorted_quarters) if q["key"] == q_key), -1)
         prev_quarter_months = sorted_quarters[current_idx - 1]["months"] if current_idx > 0 else []
         num_months_in_period = 3.0
-        period_suffix = "QoQ"
+
+    mec_active = conn.execute("SELECT 1 FROM stations WHERE is_active = 1 AND UPPER(name) LIKE '%MEC%'").fetchone() is not None
+    report_groups = list(CORE_GROUPS)
+    if mec_active:
+        report_groups.append("MEC Lab")
+
+    model_group_rows = conn.execute("SELECT model_id, group_name FROM model_groups").fetchall()
+    model_group_map = {str(r["model_id"]).strip().upper(): canonicalize_group_name(r["group_name"]) for r in model_group_rows if r["model_id"]}
+
+    station_rows_all = conn.execute("SELECT id, name, group_name, is_active, sort_order FROM stations ORDER BY sort_order ASC, name ASC").fetchall()
+    station_group_map = {r["id"]: canonicalize_group_name(r["group_name"]) for r in station_rows_all}
 
     all_engineers = conn.execute("""
-        SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.custom_target_pi, 
-               e.activation_date, e.resigned_date, s.name as station_name, s.target_pi as st_target, s.group_name 
-        FROM engineers e LEFT JOIN stations s ON e.station_id = s.id 
+        SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.custom_target_pi,
+               e.activation_date, e.resigned_date
+        FROM engineers e
         WHERE (e.track_performance = 1 OR e.track_performance IS NULL)
     """).fetchall()
 
-    muted_rows = conn.execute("SELECT username FROM ignored_technicians").fetchall()
-    muted_users = set([m["username"].strip().lower() for m in muted_rows])
-    target_groups = ["CSG", "EiSG+Scope", "STDS LAB", "Legacy+Modular+PMPS (A)+MMA+ Others", "MEC Lab"]
+    muted_users = {clean_username(m["username"]) for m in conn.execute("SELECT username FROM ignored_technicians").fetchall()}
+    roster_users = {clean_username(e["username"]) for e in all_engineers if clean_username(e["username"])}
 
-    # -------------------------------------------------------------
-    # 2. HELPER FUNCTION TO EVALUATE PERIOD METRICS
-    # -------------------------------------------------------------
-    def evaluate_quarter(months_list):
-        # NOTE: Must return exactly 9 items here to match the 9 unpacked variables!
+    def evaluate_quarter(months_list, collect_unmapped=False):
         if not months_list:
-            return {}, 0, 0.0, 0.0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+            return {}, 0, 0.0, 0.0, 100, 0, [], [], []
 
         df_c = pd.DataFrame()
         for (cy, cm) in months_list:
             df_m = pd.read_sql("SELECT service_id, model_id, serial_no, cal_date, cal_day, cal_month, cal_year, cal_by, category, mos FROM calibrations WHERE cal_year = ? AND cal_month = ?", conn, params=[cy, cm])
-            if not df_m.empty: df_c = pd.concat([df_c, df_m], ignore_index=True)
+            if not df_m.empty:
+                df_c = pd.concat([df_c, df_m], ignore_index=True)
 
         if not df_c.empty:
             df_c["clean_by"] = df_c["cal_by"].astype(str).str.strip().str.lower()
-            df_c = df_c[~df_c["clean_by"].isin(muted_users)]
+            df_c = df_c[df_c["clean_by"].isin(roster_users) & (~df_c["clean_by"].isin(muted_users))].copy()
+            df_c["clean_model"] = df_c["model_id"].astype(str).str.strip().str.upper()
+            df_c["seg_group"] = df_c["clean_model"].map(model_group_map)
 
         df_a = pd.DataFrame()
         for (cy, cm) in months_list:
             df_m = pd.read_sql("SELECT formal_name, capped_hours, year, month FROM attendance WHERE year = ? AND month = ?", conn, params=[cy, cm])
-            if not df_m.empty: df_a = pd.concat([df_a, df_m], ignore_index=True)
-        if not df_a.empty: df_a["clean_name"] = df_a["formal_name"].apply(normalize_str)
+            if not df_m.empty:
+                df_a = pd.concat([df_a, df_m], ignore_index=True)
+        if not df_a.empty:
+            df_a["clean_name"] = df_a["formal_name"].apply(normalize_str)
 
         df_r = pd.DataFrame()
         for (cy, cm) in months_list:
             df_rej = pd.read_sql("SELECT service_id, model_id, serial_no, cal_by, reject_date, reject_year, reject_month, failure_reason, remark FROM rejection_logs WHERE reject_year = ? AND reject_month = ?", conn, params=[cy, cm])
-            if not df_rej.empty: df_r = pd.concat([df_r, df_rej], ignore_index=True)
-        if not df_r.empty: df_r["clean_by"] = df_r["cal_by"].astype(str).str.strip().str.lower()
+            if not df_rej.empty:
+                df_r = pd.concat([df_r, df_rej], ignore_index=True)
+        if not df_r.empty:
+            df_r["clean_by"] = df_r["cal_by"].astype(str).str.strip().str.lower()
+            df_r = df_r[df_r["clean_by"].isin(roster_users) & (~df_r["clean_by"].isin(muted_users))].copy()
+            df_r["clean_model"] = df_r["model_id"].astype(str).str.strip().str.upper()
+            df_r["seg_group"] = df_r["clean_model"].map(model_group_map)
+
+        unmapped_counter = Counter()
+        if collect_unmapped and not df_c.empty:
+            unmapped_df = df_c[df_c["seg_group"].isna() & (df_c["clean_model"] != "") & (df_c["clean_model"] != "NAN")]
+            for m_id in unmapped_df["clean_model"].tolist():
+                unmapped_counter[m_id] += 1
+
+        grp_days = {grp: 0.0 for grp in report_groups}
+        grp_errors = {grp: 0 for grp in report_groups}
+        ae_station_month_map = {}
+        labor_rows = []
+
+        for (cy, cm) in months_list:
+            _, m_days = calendar.monthrange(cy, cm)
+            m_start, m_end = date(cy, cm, 1), date(cy, cm, m_days)
+            m_cals = df_c[(df_c["cal_year"] == cy) & (df_c["cal_month"] == cm)] if not df_c.empty else pd.DataFrame()
+
+            for e in all_engineers:
+                u_clean = clean_username(e["username"])
+                if not u_clean or u_clean in muted_users:
+                    continue
+                act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
+                if not act_d or act_d > m_end:
+                    continue
+
+                ae_m_cals = m_cals[m_cals["clean_by"] == u_clean] if not m_cals.empty else pd.DataFrame()
+                if res_d and res_d < m_start and len(ae_m_cals) == 0:
+                    continue
+
+                st_id, st_name, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], cy, cm)
+                if not st_active:
+                    continue
+
+                ae_station_month_map[(u_clean, cy, cm)] = (st_name, station_group_map.get(st_id))
+
+                fn_norm = normalize_str(e["formal_name"])
+                shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
+                hrs = df_a[(df_a["clean_name"] == fn_norm) & (df_a["year"] == cy) & (df_a["month"] == cm)]["capped_hours"].sum() if not df_a.empty else 0.0
+                ae_days = hrs / shift
+
+                if ae_days <= 0:
+                    continue
+
+                ae_mapped = ae_m_cals[ae_m_cals["seg_group"].isin(report_groups)] if not ae_m_cals.empty else pd.DataFrame()
+                tot_mapped = len(ae_mapped)
+
+                if tot_mapped > 0:
+                    grp_counts = ae_mapped["seg_group"].value_counts().to_dict()
+                    for grp, cnt in grp_counts.items():
+                        share = cnt / float(tot_mapped)
+                        alloc_days = ae_days * share
+                        grp_days[grp] += alloc_days
+                        labor_rows.append([
+                            e["formal_name"], e["username"], st_name, cy, cm,
+                            round(hrs * share, 1), shift, round(alloc_days, 2), grp, f"{round(share * 100, 1)}%"
+                        ])
+                else:
+                    fb_grp = station_group_map.get(st_id)
+                    if fb_grp in grp_days:
+                        grp_days[fb_grp] += ae_days
+                        labor_rows.append([
+                            e["formal_name"], e["username"], st_name, cy, cm,
+                            round(hrs, 1), shift, round(ae_days, 2), fb_grp, "100.0% (Fallback)"
+                        ])
+
+        # Map rejections to report_groups (model_groups first, fallback to AE home station group)
+        if not df_r.empty:
+            for _, r in df_r.iterrows():
+                r_grp = r["seg_group"]
+                if r_grp not in report_groups:
+                    if r_grp == "MEC Lab" and not mec_active:
+                        continue
+                    _, fb_grp = ae_station_month_map.get((r["clean_by"], int(r["reject_year"]), int(r["reject_month"])), ("Unknown", None))
+                    r_grp = fb_grp
+                if r_grp in grp_errors:
+                    grp_errors[r_grp] += 1
 
         grp_res = {}
-        for grp in target_groups:
-            st_rows = conn.execute("SELECT id, name FROM stations WHERE is_active = 1 AND group_name = ?", (grp,)).fetchall()
-            if not st_rows: continue
-            st_ids = [s["id"] for s in st_rows]
-            grp_aes = set()
-            grp_days = 0.0
+        cal_rows = []
+        active_cals_all = df_c[df_c["seg_group"].isin(report_groups)] if not df_c.empty else pd.DataFrame()
 
-            for (cy, cm) in months_list:
-                _, m_days = calendar.monthrange(cy, cm)
-                m_start, m_end = date(cy, cm, 1), date(cy, cm, m_days)
-                for e in all_engineers:
-                    act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
-                    if act_d and act_d > m_end: continue
-                    if res_d and res_d < m_start: continue
-                    st_id, _, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], cy, cm)
-                    if not st_active: continue
-                    if st_id in st_ids:
-                        u_clean = e["username"].strip().lower()
-                        grp_aes.add(u_clean)
-                        fn_norm = normalize_str(e["formal_name"])
-                        shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
-                        hrs = df_a[(df_a["clean_name"] == fn_norm) & (df_a["year"] == cy) & (df_a["month"] == cm)]["capped_hours"].sum() if not df_a.empty else 0.0
-                        grp_days += (hrs / shift)
-
-            grp_cals = df_c[df_c["clean_by"].isin(grp_aes)] if (not df_c.empty and grp_aes) else pd.DataFrame()
+        for grp in report_groups:
+            grp_cals = active_cals_all[active_cals_all["seg_group"] == grp] if not active_cals_all.empty else pd.DataFrame()
             units = len(grp_cals)
 
-            # UNIFIED WEIGHTED TAT (15/35/35/15)
             w_num, a_w = 0.0, 0.0
             for cat in TAT_CATEGORIES:
                 k_key, weight = cat["key"], cat["weight"]
@@ -820,9 +960,18 @@ def calculate_quarterly_engine(conn, selected_quarter):
                     a_w += (weight / 100.0)
             weighted_tat = int(round(w_num / a_w)) if a_w > 0 else 100
 
-            pi = round(units / grp_days, 1) if grp_days > 0 else 0.0
-            grp_errors = len(df_r[df_r["clean_by"].isin(grp_aes)]) if (not df_r.empty and grp_aes) else 0
-            grp_res[grp] = {"units": units, "days": grp_days, "pi": pi, "tat": weighted_tat, "errors": grp_errors}
+            d_val = grp_days[grp]
+            pi = round(units / d_val, 1) if d_val > 0 else 0.0
+            grp_res[grp] = {"units": units, "days": d_val, "pi": pi, "tat": weighted_tat, "errors": grp_errors[grp]}
+
+            if not grp_cals.empty:
+                for _, r in grp_cals.iterrows():
+                    st_nm, _ = ae_station_month_map.get((r["clean_by"], int(r["cal_year"]), int(r["cal_month"])), ("Unknown", None))
+                    cal_rows.append([
+                        r["service_id"], r["model_id"], r["serial_no"], r["cal_date"],
+                        r["cal_month"], r["cal_year"], r["cal_by"], r["category"],
+                        "Met" if r["mos"] == 1 else "Late", grp, st_nm
+                    ])
 
         all_units = sum(g["units"] for g in grp_res.values())
         all_days = sum(g["days"] for g in grp_res.values())
@@ -832,27 +981,25 @@ def calculate_quarterly_engine(conn, selected_quarter):
         tot_w_num, tot_a_w = 0.0, 0.0
         for cat in TAT_CATEGORIES:
             k_key, weight = cat["key"], cat["weight"]
-            c_sub = df_c[df_c["category"].str.strip().str.upper() == k_key.upper()] if not df_c.empty else pd.DataFrame()
+            c_sub = active_cals_all[active_cals_all["category"].str.strip().str.upper() == k_key.upper()] if not active_cals_all.empty else pd.DataFrame()
             if len(c_sub) > 0:
                 pct = int(round(((c_sub["mos"] == 1).sum() / len(c_sub)) * 100.0))
                 tot_w_num += pct * (weight / 100.0)
                 tot_a_w += (weight / 100.0)
         tot_tat = int(round(tot_w_num / tot_a_w)) if tot_a_w > 0 else 100
 
-        return grp_res, all_units, all_days, all_pi, tot_tat, all_errors, df_c, df_a, df_r
+        unmapped_list = [{"model_id": m_id, "count": cnt} for m_id, cnt in unmapped_counter.most_common()]
+        return grp_res, all_units, all_days, all_pi, tot_tat, all_errors, cal_rows, labor_rows, unmapped_list
 
-    cur_grp, cur_tot_u, cur_tot_d, cur_tot_pi, cur_tot_tat, cur_tot_err, df_cals_q, df_att_q, df_rejs_q = evaluate_quarter(quarter_months)
-    prev_grp, prev_tot_u, prev_tot_d, prev_tot_pi, prev_tot_tat, prev_tot_err, _, _, _ = evaluate_quarter(prev_quarter_months)
+    cur_grp, cur_tot_u, cur_tot_d, cur_tot_pi, cur_tot_tat, cur_tot_err, raw_calibrations_rows, raw_labor_rows, unmapped_models_in_quarter = evaluate_quarter(quarter_months, collect_unmapped=True)
+    prev_grp, prev_tot_u, prev_tot_d, prev_tot_pi, prev_tot_tat, prev_tot_err, _, _, _ = evaluate_quarter(prev_quarter_months, collect_unmapped=False)
 
-    quarterly_group_data, raw_calibrations_rows, raw_labor_rows, raw_rejections_rows = [], [], [], []
-    ae_station_name_map = {}
-
-    for grp in target_groups:
-        st_rows = conn.execute("SELECT id, name FROM stations WHERE is_active = 1 AND group_name = ? ORDER BY sort_order ASC, name ASC", (grp,)).fetchall()
-        if not st_rows: continue
-
-        supporting_stations = [s["name"] for s in st_rows]
-        supporting_st_ids = [s["id"] for s in st_rows]
+    quarterly_group_data = []
+    for grp in report_groups:
+        supporting_stations = [
+            s["name"] for s in station_rows_all
+            if s["is_active"] and canonicalize_group_name(s["group_name"]) == grp
+        ]
         grp_m = cur_grp.get(grp, {"units": 0, "days": 0.0, "pi": 0.0, "tat": 100, "errors": 0})
         prev_m = prev_grp.get(grp, {"pi": None, "tat": None, "errors": None})
 
@@ -870,36 +1017,9 @@ def calculate_quarterly_engine(conn, selected_quarter):
         errs = grp_m["errors"]
         qual = max(0.0, round(((vol - errs) / vol) * 100.0, 1)) if vol > 0 else 100.0
 
-        grp_aes = set()
-        for (cy, cm) in quarter_months:
-            _, m_days = calendar.monthrange(cy, cm)
-            m_start, m_end = date(cy, cm, 1), date(cy, cm, m_days)
-            for e in all_engineers:
-                act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
-                if act_d and act_d > m_end: continue
-                if res_d and res_d < m_start: continue
-                st_id, st_name, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], cy, cm)
-                if not st_active: continue
-                if st_id in supporting_st_ids:
-                    u_clean = e["username"].strip().lower()
-                    grp_aes.add(u_clean)
-                    ae_station_name_map[u_clean] = st_name
-                    fn_norm = normalize_str(e["formal_name"])
-                    shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
-                    hrs = df_att_q[(df_att_q["clean_name"] == fn_norm) & (df_att_q["year"] == cy) & (df_att_q["month"] == cm)]["capped_hours"].sum() if not df_att_q.empty else 0.0
-                    raw_labor_rows.append([e["formal_name"], e["username"], st_name, cy, cm, round(hrs, 1), shift, round(hrs/shift, 2), grp])
-
-        if not df_cals_q.empty and grp_aes:
-            for _, r in df_cals_q[df_cals_q["clean_by"].isin(grp_aes)].iterrows():
-                raw_calibrations_rows.append([
-                    r["service_id"], r["model_id"], r["serial_no"], r["cal_date"], 
-                    r["cal_month"], r["cal_year"], r["cal_by"], r["category"], 
-                    "Met" if r["mos"] == 1 else "Late", grp, ae_station_name_map.get(r["clean_by"], "Unknown")
-                ])
-
         quarterly_group_data.append({
             "group_name": grp,
-            "supporting_stations": ", ".join(supporting_stations) or "None",
+            "supporting_stations": ", ".join(supporting_stations) or "Model-Mapped",
             "volume": vol,
             "avg_monthly_output": avg_mo,
             "pi": grp_m["pi"],
@@ -939,7 +1059,8 @@ def calculate_quarterly_engine(conn, selected_quarter):
         "quality_met": (cur_tot_u - cur_tot_err) / cur_tot_u >= 0.98 if cur_tot_u > 0 else True
     }
 
-    return quarterly_group_data, overall_row, raw_calibrations_rows, raw_labor_rows, [], []
+    return quarterly_group_data, overall_row, raw_calibrations_rows, raw_labor_rows, [], unmapped_models_in_quarter
+
 
 @app.route("/analytics", strict_slashes=False)
 def analytics():
@@ -966,7 +1087,6 @@ def analytics():
     available_quarters = list(fiscal_quarters_map.values())
     available_quarters.sort(key=lambda x: (x["fiscal_yr"], x["q_num"]), reverse=True)
 
-    # Inject Full Fiscal Year options
     distinct_fy = sorted(list(set(t["fiscal_year"] for t in timeline)), reverse=True)
     for fy in distinct_fy:
         available_quarters.append({
@@ -976,28 +1096,26 @@ def analytics():
             "q_num": 99
         })
 
-    # Validate without forcing FULL_FY back to Q4
-    valid_keys = set(q["key"] for q in available_quarters)
+    valid_keys = {q["key"] for q in available_quarters}
     req_quarter = request.args.get("quarter")
     selected_quarter = req_quarter if (req_quarter and req_quarter in valid_keys) else available_quarters[0]["key"]
 
     active_engineers = conn.execute("SELECT e.id, e.formal_name, e.username, e.station_id, e.shift_hours, e.activation_date, e.resigned_date FROM engineers e WHERE (e.track_performance = 1 OR e.track_performance IS NULL)").fetchall()
-    roster_usernames = set([e["username"].strip().lower() for e in active_engineers if e["username"]])
-    muted_users = set([m["username"].strip().lower() for m in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+    muted_users = {clean_username(m["username"]) for m in conn.execute("SELECT username FROM ignored_technicians").fetchall()}
+    roster_usernames = {clean_username(e["username"]) for e in active_engineers if clean_username(e["username"]) and clean_username(e["username"]) not in muted_users}
 
     df_cals_all = pd.read_sql("SELECT category, mos, cal_by, cal_year, cal_month, model_id FROM calibrations", conn)
     if not df_cals_all.empty:
         df_cals_all["clean_by"] = df_cals_all["cal_by"].astype(str).str.strip().str.lower()
-        df_cals_all = df_cals_all[df_cals_all["clean_by"].isin(roster_usernames) & (~df_cals_all["clean_by"].isin(muted_users))]
+        df_cals_all = df_cals_all[df_cals_all["clean_by"].isin(roster_usernames)]
 
-    # Compact 4-Panel Timeline Data
     four_panel_data = {}
     for cat in TAT_CATEGORIES:
         k, lbl = cat["key"], cat["label"]
         vols, mos_pcts = [], []
         for item in timeline:
             cy, m = item["cal_year"], item["month_num"]
-            m_rows = df_cals_all[(df_cals_all["category"].astype(str).str.strip().str.upper() == k) & (df_cals_all["cal_year"] == cy) & (df_cals_all["cal_month"] == m)]
+            m_rows = df_cals_all[(df_cals_all["category"].astype(str).str.strip().str.upper() == k) & (df_cals_all["cal_year"] == cy) & (df_cals_all["cal_month"] == m)] if not df_cals_all.empty else pd.DataFrame()
             tot_cnt = len(m_rows)
             vols.append(tot_cnt)
             mos_pcts.append(round(((m_rows["mos"] == 1).sum() / tot_cnt) * 100.0, 1) if tot_cnt > 0 else 0.0)
@@ -1009,11 +1127,12 @@ def analytics():
         four_panel_data[k] = {"label": lbl, "volumes": vols, "mos_percentages": mos_pcts, "avg_volume": avg_vol, "avg_mos": avg_mos}
 
     df_att_all = pd.read_sql("SELECT formal_name, capped_hours, year, month FROM attendance", conn)
-    if not df_att_all.empty: df_att_all["clean_name"] = df_att_all["formal_name"].apply(normalize_str)
+    if not df_att_all.empty:
+        df_att_all["clean_name"] = df_att_all["formal_name"].apply(normalize_str)
     df_rejs_all = pd.read_sql("SELECT cal_by, reject_year, reject_month FROM rejection_logs", conn)
     if not df_rejs_all.empty:
         df_rejs_all["clean_by"] = df_rejs_all["cal_by"].astype(str).str.strip().str.lower()
-        df_rejs_all = df_rejs_all[df_rejs_all["clean_by"].isin(roster_usernames) & (~df_rejs_all["clean_by"].isin(muted_users))]
+        df_rejs_all = df_rejs_all[df_rejs_all["clean_by"].isin(roster_usernames)]
 
     monthly_labels, monthly_pi_vols, monthly_pis = [], [], []
     monthly_qualities, monthly_errors = [], []
@@ -1022,7 +1141,7 @@ def analytics():
         cy, cm = item["cal_year"], item["month_num"]
         monthly_labels.append(item["label"])
 
-        c_m = df_cals_all[(df_cals_all["cal_year"] == cy) & (df_cals_all["cal_month"] == cm)]
+        c_m = df_cals_all[(df_cals_all["cal_year"] == cy) & (df_cals_all["cal_month"] == cm)] if not df_cals_all.empty else pd.DataFrame()
         u_cnt = len(c_m)
         monthly_pi_vols.append(u_cnt)
 
@@ -1030,9 +1149,18 @@ def analytics():
         m_start, m_end = date(cy, cm, 1), date(cy, cm, m_days)
         tot_days = 0.0
         for e in active_engineers:
+            u_clean = clean_username(e["username"])
+            if not u_clean or u_clean in muted_users:
+                continue
             act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
-            if act_d and act_d > m_end: continue
-            if res_d and res_d < m_start: continue
+            if not act_d or act_d > m_end:
+                continue
+            u_m_cnt = len(c_m[c_m["clean_by"] == u_clean]) if not c_m.empty else 0
+            if res_d and res_d < m_start and u_m_cnt == 0:
+                continue
+            _, _, _, _, st_active = resolve_engineer_station(conn, e["id"], e["station_id"], cy, cm)
+            if not st_active:
+                continue
             fn_norm = normalize_str(e["formal_name"])
             shift = e["shift_hours"] if e["shift_hours"] > 0 else 8.0
             hrs = df_att_all[(df_att_all["clean_name"] == fn_norm) & (df_att_all["year"] == cy) & (df_att_all["month"] == cm)]["capped_hours"].sum() if not df_att_all.empty else 0.0
@@ -1047,18 +1175,18 @@ def analytics():
         monthly_qualities.append(q_pct)
 
     quarterly_group_data, overall_row, _, _, _, unmapped_models_in_quarter = calculate_quarterly_engine(conn, selected_quarter)
-    target_groups = ["CSG", "EiSG+Scope", "STDS LAB", "Legacy+Modular+PMPS (A)+MMA+ Others", "MEC Lab"]
     conn.close()
 
     return render_template(
         "analytics.html", has_data=True, timeline_json=json.dumps(timeline), four_panel_data=four_panel_data,
         available_quarters=available_quarters, selected_quarter=selected_quarter,
         quarterly_group_data=quarterly_group_data, overall_row=overall_row,
-        unmapped_models_in_quarter=unmapped_models_in_quarter, target_groups=target_groups,
+        unmapped_models_in_quarter=unmapped_models_in_quarter, target_groups=ALL_TARGET_GROUPS,
         monthly_labels=json.dumps(monthly_labels), monthly_pi_vols=json.dumps(monthly_pi_vols),
         monthly_pis=json.dumps(monthly_pis), monthly_qualities=json.dumps(monthly_qualities),
         monthly_errors=json.dumps(monthly_errors)
     )
+
 
 @app.route("/export_quarterly_data", strict_slashes=False)
 def export_quarterly_data():
@@ -1079,9 +1207,6 @@ def export_quarterly_data():
         fiscal_quarters_map[f"FULL_FY_{fiscal_yr}"] = True
 
     valid_export_keys = set(fiscal_quarters_map.keys())
-    for r in periods_db:
-        _, fy, _ = get_keysight_fiscal_info(int(r["yr"]), int(r["mo"]))
-        valid_export_keys.add(f"FULL_FY_{fy}")
     selected_quarter = req_quarter if (req_quarter and req_quarter in valid_export_keys) else list(fiscal_quarters_map.keys())[-1]
     quarterly_group_data, overall_row, raw_calibrations_rows, raw_labor_rows, _, _ = calculate_quarterly_engine(conn, selected_quarter)
     conn.close()
@@ -1105,9 +1230,9 @@ def export_quarterly_data():
     r_idx = 2
     for g in quarterly_group_data:
         ws_sum.append([
-            g["group_name"], g["supporting_stations"], g["volume"], 
-            g["avg_monthly_output"], g["pi"], g["qoq_pi_str"], 
-            f"{g['tat']}%", g["qoq_tat_str"], g["errors"], 
+            g["group_name"], g["supporting_stations"], g["volume"],
+            g["avg_monthly_output"], g["pi"], g["qoq_pi_str"],
+            f"{g['tat']}%", g["qoq_tat_str"], g["errors"],
             g["qoq_err_str"], f"{g['quality']}%"
         ])
         for c_i in range(1, 12):
@@ -1130,21 +1255,22 @@ def export_quarterly_data():
     for c_i in range(1, 12):
         c = ws_cal.cell(row=1, column=c_i)
         c.fill, c.font, c.alignment = sub_fill, white_font, center
-    for r in raw_calibrations_rows: ws_cal.append(r)
+    for r in raw_calibrations_rows:
+        ws_cal.append(r)
 
     ws_labor = wb.create_sheet(title="Labor & Working Days")
-    ws_labor.append(["Engineer Name", "Username", "Station", "Year", "Month", "Working Hours", "Shift", "Effective Days", "Assigned Group"])
-    for c_i in range(1, 10):
+    ws_labor.append(["Engineer Name", "Username", "Home Station", "Year", "Month", "Working Hours", "Shift", "Effective Days", "Assigned Group", "Labor Share"])
+    for c_i in range(1, 11):
         c = ws_labor.cell(row=1, column=c_i)
         c.fill, c.font, c.alignment = sub_fill, white_font, center
-    for r in raw_labor_rows: ws_labor.append(r)
+    for r in raw_labor_rows:
+        ws_labor.append(r)
 
     for sheet in [ws_sum, ws_cal, ws_labor]:
         for col in sheet.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             sheet.column_dimensions[openpyxl.utils.get_column_letter(col[0].column)].width = max(max_len + 3, 14)
 
-    conn.close()
     excel_stream = io.BytesIO()
     wb.save(excel_stream)
     excel_stream.seek(0)
@@ -1154,10 +1280,12 @@ def export_quarterly_data():
 
 @app.route("/export_quarterly_pptx", strict_slashes=False)
 def export_quarterly_pptx():
-    conn = get_db()
     req_quarter = request.args.get("quarter")
+    if req_quarter and req_quarter.startswith("FULL_FY_"):
+        flash("Quarterly PowerPoint slides are disabled for Full Fiscal Year views. Please select an individual quarter.", "info")
+        return redirect(url_for("analytics", quarter=req_quarter))
 
-    # Fetch available quarters
+    conn = get_db()
     periods_db = conn.execute(
         "SELECT DISTINCT cal_year as yr, cal_month as mo FROM calibrations WHERE cal_year IS NOT NULL AND cal_month IS NOT NULL ORDER BY yr ASC, mo ASC").fetchall()
     if not periods_db:
@@ -1172,8 +1300,7 @@ def export_quarterly_pptx():
         q_key = f"{q_label} FY'{str(fiscal_yr)[-2:]}"
         fiscal_quarters_map[q_key] = True
 
-    selected_quarter = req_quarter if req_quarter and req_quarter in fiscal_quarters_map else \
-    list(fiscal_quarters_map.keys())[-1]
+    selected_quarter = req_quarter if req_quarter and req_quarter in fiscal_quarters_map else list(fiscal_quarters_map.keys())[-1]
 
     ppt_stream = generate_quarterly_deck(conn, selected_quarter)
     conn.close()
@@ -1186,15 +1313,19 @@ def export_quarterly_pptx():
         mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation"
     )
 
+
 @app.route("/export_pptx", strict_slashes=False)
 def export_pptx():
     conn = get_db()
     req_period = request.args.get("period", "2026-08")
-    try: y, m = [int(x) for x in req_period.split("-")]
-    except ValueError: y, m = 2026, 8
+    try:
+        y, m = [int(x) for x in req_period.split("-")]
+    except ValueError:
+        y, m = 2026, 8
     ppt_stream = generate_monthly_deck(conn, y, m)
     conn.close()
     return send_file(ppt_stream, as_attachment=True, download_name=f"Cal_Lab_Output_Tracking_{calendar.month_abbr[m]}_{y}.pptx", mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
 
 @app.route("/history", strict_slashes=False)
 def history():
@@ -1202,7 +1333,7 @@ def history():
     mode = request.args.get("mode", "engineer")
     show_resigned = request.args.get("show_resigned") == "1"
     today = date.today()
-    
+
     all_engineers = conn.execute("SELECT e.id, e.formal_name, e.display_name, e.username, e.station_id, e.custom_target_pi, s.name as station_name, e.shift_hours, e.joined_date, e.activation_date, e.resigned_date FROM engineers e LEFT JOIN stations s ON e.station_id = s.id WHERE (e.track_performance = 1 OR e.track_performance IS NULL) ORDER BY e.formal_name").fetchall()
     filtered_engineers = []
     for e in all_engineers:
@@ -1210,21 +1341,24 @@ def history():
         is_resigned = res_d and res_d <= today
         e_dict = dict(e)
         e_dict["is_resigned"] = is_resigned
-        if not is_resigned or show_resigned: filtered_engineers.append(e_dict)
+        if not is_resigned or show_resigned:
+            filtered_engineers.append(e_dict)
 
     stations = conn.execute("SELECT id, name, sort_order, target_pi FROM stations WHERE is_active = 1 ORDER BY sort_order ASC, name ASC").fetchall()
     valid_station_names = [s["name"] for s in stations]
     periods = conn.execute("SELECT DISTINCT cal_year as yr, cal_month as mo FROM calibrations WHERE cal_year IS NOT NULL UNION SELECT DISTINCT year as yr, month as mo FROM attendance WHERE year IS NOT NULL ORDER BY yr ASC, mo ASC").fetchall()
 
-    df_cals_all = pd.read_sql("SELECT cal_by, category, mos, cal_year, cal_month FROM calibrations", conn)
+    df_cals_all = pd.read_sql("SELECT LOWER(TRIM(cal_by)) as cal_by_clean, category, mos, cal_year, cal_month FROM calibrations", conn)
     df_att_all = pd.read_sql("SELECT formal_name, year, month, capped_hours FROM attendance", conn)
-    if not df_att_all.empty: df_att_all["clean_name"] = df_att_all["formal_name"].apply(normalize_str)
+    if not df_att_all.empty:
+        df_att_all["clean_name"] = df_att_all["formal_name"].apply(normalize_str)
     df_mistakes_all = pd.read_sql("SELECT engineer_id, year, month, mistakes FROM quality_logs", conn)
 
     if mode == "engineer":
         target_id = request.args.get("target")
         selected_eng = next((e for e in filtered_engineers if str(e["id"]) == str(target_id)), None) if target_id else None
-        if not selected_eng and filtered_engineers: selected_eng = filtered_engineers[0]
+        if not selected_eng and filtered_engineers:
+            selected_eng = filtered_engineers[0]
 
         selected_target = str(selected_eng["id"]) if selected_eng else ""
         shift_base = selected_eng["shift_hours"] if selected_eng else 8.0
@@ -1251,13 +1385,13 @@ def history():
 
         ledger, chart_labels, chart_units, chart_pis, chart_qualities, chart_tats = [], [], [], [], [], []
         chart_ete, chart_new, chart_psc_ext, chart_psc_int = [], [], [], []
-        tot_u, tot_m, pi_sum, q_sum, tat_sum, valid_cnt = 0, 0, 0.0, 0.0, 0.0, 0
+        tot_u, tot_m, pi_sum, tat_sum, valid_cnt, tat_cnt = 0, 0, 0.0, 0.0, 0, 0
         latest_station_name = selected_eng["station_name"] if selected_eng else "Unassigned"
         base_target_pi = 3.0
-        distinct_years = sorted(list(set([int(p["yr"]) for p in periods])), reverse=True)
 
         if selected_eng:
             prev_st_name = None
+            u_clean = clean_username(selected_eng["username"])
             for p in periods:
                 yr, mo = int(p["yr"]), int(p["mo"])
                 p_label = f"{calendar.month_abbr[mo]} '{str(yr)[-2:]}"
@@ -1269,7 +1403,7 @@ def history():
                 transfer_note = f"Transferred from {prev_st_name}" if is_transfer_month else None
                 prev_st_name = st_name
 
-                p_cals = df_cals_all[(df_cals_all["cal_by"] == selected_eng["username"]) & (df_cals_all["cal_year"] == yr) & (df_cals_all["cal_month"] == mo)] if not df_cals_all.empty else pd.DataFrame()
+                p_cals = df_cals_all[(df_cals_all["cal_by_clean"] == u_clean) & (df_cals_all["cal_year"] == yr) & (df_cals_all["cal_month"] == mo)] if not df_cals_all.empty else pd.DataFrame()
                 units = len(p_cals)
                 hrs = df_att_all[(df_att_all["clean_name"] == normalize_str(selected_eng["formal_name"])) & (df_att_all["year"] == yr) & (df_att_all["month"] == mo)]["capped_hours"].sum() if not df_att_all.empty else 0.0
                 equiv_days = int(round(hrs / shift_base)) if shift_base > 0 else 0
@@ -1287,8 +1421,10 @@ def history():
                     if len(c_rows) > 0:
                         pct = int(round(((c_rows["mos"] == 1).sum() / len(c_rows)) * 100.0))
                         cat_scores[lbl], cat_numeric[lbl] = f"{pct}%", pct
-                        w_num += pct * (w / 100.0); act_w += (w / 100.0)
-                    else: cat_scores[lbl], cat_numeric[lbl] = "N/A", None
+                        w_num += pct * (w / 100.0)
+                        act_w += (w / 100.0)
+                    else:
+                        cat_scores[lbl], cat_numeric[lbl] = "N/A", None
 
                 tat_val = int(round(w_num / act_w)) if act_w > 0 else None
                 tat_str = f"{tat_val}%" if tat_val is not None else "N/A"
@@ -1305,10 +1441,12 @@ def history():
                         "psc_int": cat_scores.get("psc_int", "N/A"), "psc_int_num": cat_numeric.get("psc_int"),
                         "tat": tat_str, "tat_num": tat_val
                     })
-                    chart_labels.append(p_label); chart_units.append(units); chart_pis.append(pi); chart_qualities.append(quality); chart_tats.append(tat_val or 0)
-                    chart_ete.append(cat_numeric.get("ete", 0)); chart_new.append(cat_numeric.get("new", 0)); chart_psc_ext.append(cat_numeric.get("psc_ext", 0)); chart_psc_int.append(cat_numeric.get("psc_int", 0))
-                    tot_u += units; tot_m += mistakes; pi_sum += pi; q_sum += quality
-                    if tat_val is not None: tat_sum += tat_val
+                    chart_labels.append(p_label); chart_units.append(units); chart_pis.append(pi); chart_qualities.append(quality); chart_tats.append(tat_val)
+                    chart_ete.append(cat_numeric.get("ete")); chart_new.append(cat_numeric.get("new")); chart_psc_ext.append(cat_numeric.get("psc_ext")); chart_psc_int.append(cat_numeric.get("psc_int"))
+                    tot_u += units; tot_m += mistakes; pi_sum += pi
+                    if tat_val is not None:
+                        tat_sum += tat_val
+                        tat_cnt += 1
                     valid_cnt += 1
 
             profile = {
@@ -1322,9 +1460,10 @@ def history():
         else:
             profile = {"id": None, "title": "No Engineer Selected", "subtitle": "Unassigned", "timeline": None, "shift": "8h", "joined": "N/A", "activated": "N/A", "resigned": None, "tenure": "N/A", "base_target_pi": 3.0}
 
+        distinct_years = sorted(list({r["year"] for r in ledger}), reverse=True)
         avg_pi = round(pi_sum / valid_cnt, 1) if valid_cnt > 0 else 0.0
-        avg_quality = round(q_sum / valid_cnt, 1) if valid_cnt > 0 else 100.0
-        avg_tat = round(tat_sum / valid_cnt, 1) if valid_cnt > 0 else 0.0
+        avg_quality = max(0.0, round(((tot_u - tot_m) / tot_u) * 100.0, 1)) if tot_u > 0 else 100.0
+        avg_tat = round(tat_sum / tat_cnt, 1) if tat_cnt > 0 else 0.0
         active_ledger = [r for r in ledger if r["units"] > 0 or r["hours"] > 0]
         pi_met_cnt = sum(1 for r in active_ledger if r["pi_met"])
         pi_hit_rate = round((pi_met_cnt / len(active_ledger)) * 100.0, 1) if active_ledger else 0.0
@@ -1367,6 +1506,7 @@ def history():
             ae_color = st_colors[idx % len(st_colors)]
             ae_units_series, ae_pi_series = [], []
             act_d, res_d = parse_iso_date(e["activation_date"]), parse_iso_date(e["resigned_date"])
+            u_clean = clean_username(e["username"])
 
             for p in periods:
                 yr, mo = int(p["yr"]), int(p["mo"])
@@ -1376,13 +1516,15 @@ def history():
                 if (act_d and act_d > p_end) or (res_d and res_d < p_start) or (st_name != selected_st):
                     ae_units_series.append(None); ae_pi_series.append(None)
                 else:
-                    p_cals = df_cals_all[(df_cals_all["cal_by"] == e["username"]) & (df_cals_all["cal_year"] == yr) & (df_cals_all["cal_month"] == mo)] if not df_cals_all.empty else pd.DataFrame()
+                    p_cals = df_cals_all[(df_cals_all["cal_by_clean"] == u_clean) & (df_cals_all["cal_year"] == yr) & (df_cals_all["cal_month"] == mo)] if not df_cals_all.empty else pd.DataFrame()
                     units = len(p_cals)
                     hrs = df_att_all[(df_att_all["clean_name"] == normalize_str(e["formal_name"])) & (df_att_all["year"] == yr) & (df_att_all["month"] == mo)]["capped_hours"].sum() if not df_att_all.empty else 0.0
                     pi = round(units / (hrs / e["shift_hours"]), 1) if (hrs > 0 and e["shift_hours"] > 0) else 0.0
                     ae_units_series.append(units); ae_pi_series.append(pi)
                     tot_u += units
-                    if pi > 0: pi_sum += pi; valid_cnt += 1
+                    if pi > 0:
+                        pi_sum += pi
+                        valid_cnt += 1
 
             station_ae_output_datasets.append({"label": ae_legend_name, "data": ae_units_series, "backgroundColor": ae_color, "borderRadius": 3})
             station_ae_pi_datasets.append({"label": ae_legend_name, "data": ae_pi_series, "borderColor": ae_color, "backgroundColor": ae_color, "borderWidth": 2, "pointRadius": 3, "tension": 0.2})
@@ -1390,6 +1532,7 @@ def history():
         station_ae_pi_datasets.append({"label": f"Station Target ({st_target})", "data": [st_target] * len(periods), "borderColor": "#dc3545", "borderWidth": 2, "borderDash": [5, 5], "pointRadius": 0, "fill": False})
 
         station_peers_ledger = []
+        tat_vals_all = []
         for p in reversed(periods):
             yr, mo = int(p["yr"]), int(p["mo"])
             month_peers = []
@@ -1397,8 +1540,8 @@ def history():
                 _, st_name, _, _, _ = resolve_engineer_station(conn, e["id"], e["station_id"], yr, mo)
                 if st_name == selected_st:
                     ind_target = e["custom_target_pi"] if e["custom_target_pi"] is not None else st_target
-                    u, fn, shift = e["username"], normalize_str(e["formal_name"]), e["shift_hours"]
-                    u_cals = df_cals_all[(df_cals_all["cal_by"] == u) & (df_cals_all["cal_year"] == yr) & (df_cals_all["cal_month"] == mo)] if not df_cals_all.empty else pd.DataFrame()
+                    u_clean, fn, shift = clean_username(e["username"]), normalize_str(e["formal_name"]), e["shift_hours"]
+                    u_cals = df_cals_all[(df_cals_all["cal_by_clean"] == u_clean) & (df_cals_all["cal_year"] == yr) & (df_cals_all["cal_month"] == mo)] if not df_cals_all.empty else pd.DataFrame()
                     units = len(u_cals)
                     hrs = df_att_all[(df_att_all["clean_name"] == fn) & (df_att_all["year"] == yr) & (df_att_all["month"] == mo)]["capped_hours"].sum() if not df_att_all.empty else 0.0
                     equiv_days = int(round(hrs / shift)) if shift > 0 else 0
@@ -1414,8 +1557,11 @@ def history():
                         c_rows = u_cals[u_cals["category"].str.strip().str.upper() == k] if not u_cals.empty else pd.DataFrame()
                         if len(c_rows) > 0:
                             pct = int(round(((c_rows["mos"] == 1).sum() / len(c_rows)) * 100.0))
-                            w_num += pct * (w / 100.0); act_w += (w / 100.0)
+                            w_num += pct * (w / 100.0)
+                            act_w += (w / 100.0)
                     tat_val = int(round(w_num / act_w)) if act_w > 0 else None
+                    if tat_val is not None:
+                        tat_vals_all.append(tat_val)
 
                     if units > 0 or hrs > 0:
                         month_peers.append({"name": e["formal_name"], "units": units, "hours": round(hrs, 1), "equiv_days": equiv_days, "target_pi": ind_target, "pi": pi, "pi_met": pi >= ind_target, "mistakes": mistakes, "quality": quality, "tat": f"{tat_val}%" if tat_val is not None else "N/A"})
@@ -1427,7 +1573,9 @@ def history():
                 st_month_pi = round(st_month_units / st_month_days, 1) if st_month_days > 0 else 0.0
                 station_peers_ledger.append({"period_label": f"{calendar.month_name[mo]} {yr}", "station_units": st_month_units, "station_pi": st_month_pi, "station_pi_met": st_month_pi >= st_target, "peers": month_peers})
 
-        lifetime = {"total_units": tot_u, "total_mistakes": tot_m, "avg_pi": round(pi_sum / valid_cnt, 1) if valid_cnt > 0 else 0.0, "avg_quality": 99.0, "avg_tat": 92.0, "pi_diff": 0.0, "tat_diff": 0.0}
+        st_avg_quality = max(0.0, round(((tot_u - tot_m) / tot_u) * 100.0, 1)) if tot_u > 0 else 100.0
+        st_avg_tat = round(sum(tat_vals_all) / len(tat_vals_all), 1) if tat_vals_all else 0.0
+        lifetime = {"total_units": tot_u, "total_mistakes": tot_m, "avg_pi": round(pi_sum / valid_cnt, 1) if valid_cnt > 0 else 0.0, "avg_quality": st_avg_quality, "avg_tat": st_avg_tat, "pi_diff": 0.0, "tat_diff": 0.0}
         ledger, chart_units, chart_pis, chart_qualities, chart_tats = [], [], [], [], []
         chart_ete, chart_new, chart_psc_ext, chart_psc_int = [], [], [], []
 
@@ -1443,13 +1591,21 @@ def history():
         chart_ete=json.dumps(chart_ete), chart_new=json.dumps(chart_new), chart_psc_ext=json.dumps(chart_psc_ext), chart_psc_int=json.dumps(chart_psc_int)
     )
 
+
+def _clear_pending_uploads():
+    for fname in ["pending_cal.xlsx", "pending_att.xlsx", "pending_rej.xlsx"]:
+        fpath = os.path.join(TEMP_UPLOAD_DIR, fname)
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+
 @app.route("/upload", strict_slashes=False)
 def upload():
     return render_template("upload.html")
 
+
 @app.route("/upload/inspect", methods=["POST"])
 def upload_inspect():
-    conn = get_db()
     cal_file, att_file, rej_file = request.files.get("calibration_file"), request.files.get("attendance_file"), request.files.get("rejection_file")
     has_cal, has_att, has_rej = cal_file and cal_file.filename != "", att_file and att_file.filename != "", rej_file and rej_file.filename != ""
 
@@ -1457,113 +1613,176 @@ def upload_inspect():
         flash("Please select at least one file to inspect.", "warning")
         return redirect(url_for("upload"))
 
-    cal_summary, att_summary, rej_summary, unmapped_models = None, None, None, []
-    existing_groups = [r[0] for r in conn.execute("SELECT DISTINCT group_name FROM model_groups ORDER BY group_name").fetchall()] or ["CSG", "EiSG+Scope", "STDS LAB", "Legacy+Modular+PMPS (A)+MMA+ Others", "MEC Lab"]
+    # Clear any stale staged files from previous abandoned inspections
+    _clear_pending_uploads()
 
-    all_engineers = conn.execute("SELECT * FROM engineers WHERE is_active = 1").fetchall()
-    roster_usernames = set([e["username"].strip().lower() for e in all_engineers])
-    roster_names = set([normalize_str(e["formal_name"]) for e in all_engineers])
-    muted_usernames = set([m["username"].strip().lower() for m in conn.execute("SELECT username FROM ignored_technicians").fetchall()])
+    conn = get_db()
+    try:
+        cal_summary, att_summary, rej_summary, unmapped_models = None, None, None, []
+        existing_groups = [r[0] for r in conn.execute("SELECT DISTINCT group_name FROM model_groups ORDER BY group_name").fetchall()] or list(ALL_TARGET_GROUPS)
 
-    if has_cal:
-        cal_path = os.path.join(TEMP_UPLOAD_DIR, "pending_cal.xlsx")
-        cal_file.save(cal_path)
-        df_cal = pd.read_excel(cal_path)
-        cols = {str(c).strip().lower(): c for c in df_cal.columns}
-        cal_date_col, cal_by_col = cols.get("caldate", "CalDate"), cols.get("calby", "CalBy")
-        model_col = cols.get("modelid", cols.get("model_id", cols.get("model id", "ModelID")))
+        all_engineers = conn.execute("SELECT * FROM engineers WHERE is_active = 1").fetchall()
+        roster_usernames = {clean_username(e["username"]) for e in all_engineers if clean_username(e["username"])}
+        roster_names = {normalize_str(e["formal_name"]) for e in all_engineers}
+        muted_usernames = {clean_username(m["username"]) for m in conn.execute("SELECT username FROM ignored_technicians").fetchall()}
 
-        df_cal = df_cal.dropna(subset=[cal_by_col, cal_date_col])
-        df_cal[cal_date_col] = pd.to_datetime(df_cal[cal_date_col], errors="coerce")
-        df_cal = df_cal.dropna(subset=[cal_date_col])
-        latest_date = df_cal[cal_date_col].max()
-        period_label = f"{calendar.month_name[latest_date.month]} {latest_date.year}"
+        if has_cal:
+            cal_path = os.path.join(TEMP_UPLOAD_DIR, "pending_cal.xlsx")
+            cal_file.save(cal_path)
+            df_cal = pd.read_excel(cal_path)
+            cols = {str(c).strip().lower(): c for c in df_cal.columns}
+            cal_date_col = _resolve_col(cols, ["caldate", "cal date", "cal_date"], "CalDate")
+            cal_by_col = _resolve_col(cols, ["calby", "cal by", "cal_by", "calibrated by"], "CalBy")
+            model_col = _resolve_col(cols, ["modelid", "model id", "model_id"], "ModelID")
 
-        matched_units, muted_units, muted_count, unmapped_units = 0, 0, 0, 0
-        matched_users, unmapped_techs = set(), []
-        for user, cnt in df_cal[cal_by_col].astype(str).str.strip().value_counts().to_dict().items():
-            u_clean = user.lower()
-            if u_clean in roster_usernames: matched_units += cnt; matched_users.add(u_clean)
-            elif u_clean in muted_usernames: muted_units += cnt; muted_count += 1
-            else: unmapped_units += cnt; unmapped_techs.append({"username": user, "units": cnt})
+            if cal_by_col not in df_cal.columns or cal_date_col not in df_cal.columns:
+                raise ValueError(f"Calibration file '{cal_file.filename}' is missing 'CalBy' or 'CalDate' columns.")
 
-        mapped_db_models = set([r[0].upper() for r in conn.execute("SELECT UPPER(model_id) FROM model_groups").fetchall()])
-        file_models = df_cal[model_col].dropna().astype(str).str.strip().str.upper().unique().tolist() if model_col in df_cal.columns else []
-        for m in sorted(file_models):
-            if m and m not in mapped_db_models and m != "NAN": unmapped_models.append(m)
+            df_cal = df_cal.dropna(subset=[cal_by_col, cal_date_col])
+            df_cal[cal_date_col] = pd.to_datetime(df_cal[cal_date_col], errors="coerce")
+            df_cal = df_cal.dropna(subset=[cal_date_col])
+            if df_cal.empty:
+                raise ValueError(f"Calibration file '{cal_file.filename}' has no valid calibration rows.")
 
-        cal_summary = {
-            "filename": cal_file.filename, "period_label": period_label, "total_rows": len(df_cal),
-            "matched_units": matched_units, "matched_ae_count": len(matched_users), "muted_units": muted_units,
-            "muted_count": muted_count, "unmapped_units": unmapped_units, "unmapped_techs": unmapped_techs,
-            "unmapped_models_count": len(unmapped_models)
-        }
+            latest_date = df_cal[cal_date_col].max()
+            period_label = f"{calendar.month_name[latest_date.month]} {latest_date.year}"
 
-    if has_att:
-        att_path = os.path.join(TEMP_UPLOAD_DIR, "pending_att.xlsx")
-        att_file.save(att_path)
-        with open(att_path, "rb") as f:
-            header_idx, year, month = find_attendance_header_and_period(f)
-        df_att = pd.read_excel(att_path, skiprows=header_idx)
-        df_att.columns = [str(c).strip() for c in df_att.columns]
-        file_staff_names = set([normalize_str(str(r.get("Name", "")).strip().replace('"', '')) for _, r in df_att.iterrows() if str(r.get("Name", "")).strip().lower() not in ["nan", "none", ""]])
+            matched_units, muted_units, muted_count, unmapped_units = 0, 0, 0, 0
+            matched_users, unmapped_techs = set(), []
+            for user, cnt in df_cal[cal_by_col].astype(str).str.strip().value_counts().to_dict().items():
+                u_clean = user.lower()
+                if u_clean in roster_usernames:
+                    matched_units += cnt
+                    matched_users.add(u_clean)
+                elif u_clean in muted_usernames:
+                    muted_units += cnt
+                    muted_count += 1
+                else:
+                    unmapped_units += cnt
+                    unmapped_techs.append({"username": user, "units": cnt})
 
-        matched_roster = roster_names.intersection(file_staff_names)
-        missing_roster_names = [e["formal_name"] for e in all_engineers if normalize_str(e["formal_name"]) in roster_names.difference(file_staff_names)]
-        att_summary = {"filename": att_file.filename, "period_label": f"{calendar.month_name[month]} {year}", "total_staff": len(file_staff_names), "matched_roster_count": len(matched_roster), "active_roster_total": len(roster_names), "unmatched_staff_count": len(file_staff_names) - len(matched_roster), "missing_roster_names": missing_roster_names}
+            mapped_db_models = {r[0].upper() for r in conn.execute("SELECT UPPER(model_id) FROM model_groups").fetchall()}
+            file_models = df_cal[model_col].dropna().astype(str).str.strip().str.upper().unique().tolist() if model_col in df_cal.columns else []
+            for m in sorted(file_models):
+                if m and m not in mapped_db_models and m != "NAN":
+                    unmapped_models.append(m)
 
-    if has_rej:
-        rej_path = os.path.join(TEMP_UPLOAD_DIR, "pending_rej.xlsx")
-        rej_file.save(rej_path)
-        df_rej = pd.read_excel(rej_path)
-        cols = {str(c).strip().lower(): c for c in df_rej.columns}
-        date_col, cal_by_col = cols.get("approved/reject date", cols.get("approved/rejected date", cols.get("caldate", "Approved/Reject Date"))), cols.get("calby", "CalBy")
-        df_rej[date_col] = pd.to_datetime(df_rej[date_col], errors="coerce")
-        df_rej = df_rej.dropna(subset=[date_col])
-        latest_date = df_rej[date_col].max()
-        rej_summary = {"filename": rej_file.filename, "period_label": f"{calendar.month_name[latest_date.month]} {latest_date.year}" if not df_rej.empty else "N/A", "total_errors": len(df_rej), "affected_users": len(df_rej[cal_by_col].unique()) if not df_rej.empty else 0}
+            cal_summary = {
+                "filename": cal_file.filename, "period_label": period_label, "total_rows": len(df_cal),
+                "matched_units": matched_units, "matched_ae_count": len(matched_users), "muted_units": muted_units,
+                "muted_count": muted_count, "unmapped_units": unmapped_units, "unmapped_techs": unmapped_techs,
+                "unmapped_models_count": len(unmapped_models)
+            }
 
-    conn.close()
-    return render_template(
-        "preflight.html", cal_summary=cal_summary, att_summary=att_summary, 
-        rej_summary=rej_summary, unmapped_models=unmapped_models, existing_groups=existing_groups
-    )
+        if has_att:
+            att_path = os.path.join(TEMP_UPLOAD_DIR, "pending_att.xlsx")
+            att_file.save(att_path)
+            with open(att_path, "rb") as f:
+                header_idx, year, month = find_attendance_header_and_period(f)
+            df_att = pd.read_excel(att_path, skiprows=header_idx)
+            df_att.columns = [str(c).strip() for c in df_att.columns]
+            att_cols = {str(c).strip().lower(): c for c in df_att.columns}
+            name_col = _resolve_col(att_cols, ["name", "staff name", "employee name", "emp name"], "Name")
+            if name_col not in df_att.columns:
+                raise ValueError(f"Attendance file '{att_file.filename}' is missing a 'Name' column.")
+
+            file_staff_names = {normalize_str(str(r.get(name_col, "")).strip().replace('"', '')) for _, r in df_att.iterrows() if str(r.get(name_col, "")).strip().lower() not in ["nan", "none", ""]}
+
+            matched_roster = roster_names.intersection(file_staff_names)
+            missing_roster_names = [e["formal_name"] for e in all_engineers if normalize_str(e["formal_name"]) in roster_names.difference(file_staff_names)]
+            att_summary = {"filename": att_file.filename, "period_label": f"{calendar.month_name[month]} {year}", "total_staff": len(file_staff_names), "matched_roster_count": len(matched_roster), "active_roster_total": len(roster_names), "unmatched_staff_count": len(file_staff_names) - len(matched_roster), "missing_roster_names": missing_roster_names}
+
+        if has_rej:
+            rej_path = os.path.join(TEMP_UPLOAD_DIR, "pending_rej.xlsx")
+            rej_file.save(rej_path)
+            df_rej = pd.read_excel(rej_path)
+            cols = {str(c).strip().lower(): c for c in df_rej.columns}
+            date_col = _resolve_col(cols, ["approved/reject date", "approved/rejected date", "caldate", "cal date"], "Approved/Reject Date")
+            cal_by_col = _resolve_col(cols, ["calby", "cal by", "cal_by", "calibrated by", "technician"], "CalBy")
+            action_col = _resolve_col(cols, ["action", "action1"], None)
+            status_col = _resolve_col(cols, ["approved/rejected", "status"], None)
+
+            if cal_by_col not in df_rej.columns or date_col not in df_rej.columns:
+                raise ValueError(f"Rejection file '{rej_file.filename}' is missing 'CalBy' or 'Approved/Reject Date' columns.")
+
+            df_rej = df_rej.dropna(subset=[cal_by_col, date_col])
+            df_rej[date_col] = pd.to_datetime(df_rej[date_col], errors="coerce")
+            df_rej = df_rej.dropna(subset=[date_col])
+
+            if status_col and status_col in df_rej.columns:
+                df_rej = df_rej[df_rej[status_col].astype(str).str.strip().str.lower() == "rejected"]
+            if action_col and action_col in df_rej.columns:
+                df_rej = df_rej[~df_rej[action_col].astype(str).str.lower().str.contains("wrong reject")]
+
+            latest_date = df_rej[date_col].max() if not df_rej.empty else None
+            rej_summary = {
+                "filename": rej_file.filename,
+                "period_label": f"{calendar.month_name[latest_date.month]} {latest_date.year}" if latest_date is not None else "N/A",
+                "total_errors": len(df_rej),
+                "affected_users": df_rej[cal_by_col].astype(str).str.strip().str.lower().nunique() if not df_rej.empty else 0
+            }
+
+        return render_template(
+            "preflight.html", cal_summary=cal_summary, att_summary=att_summary,
+            rej_summary=rej_summary, unmapped_models=unmapped_models, existing_groups=existing_groups
+        )
+    except Exception as e:
+        _clear_pending_uploads()
+        flash(f"❌ Upload inspection failed: {e}", "danger")
+        return redirect(url_for("upload"))
+    finally:
+        conn.close()
+
 
 @app.route("/upload/confirm", methods=["POST"])
 def upload_confirm():
     conn = get_db()
-    cur = conn.cursor()
-    assigned_models = request.form.getlist("new_model_id")
-    for m in assigned_models:
-        group_val = request.form.get(f"group_for_{m}", "").strip()
-        custom_group = request.form.get(f"custom_group_for_{m}", "").strip()
-        final_group = custom_group if group_val == "__NEW__" and custom_group else group_val
-        if m and final_group:
-            cur.execute("INSERT INTO model_groups (model_id, group_name) VALUES (?, ?) ON CONFLICT(model_id) DO UPDATE SET group_name = excluded.group_name", (m.strip().upper(), final_group.strip()))
-    conn.commit()
-    conn.close()
+    try:
+        cur = conn.cursor()
+        assigned_models = request.form.getlist("new_model_id")
+        for m in assigned_models:
+            group_val = request.form.get(f"group_for_{m}", "").strip()
+            custom_group = request.form.get(f"custom_group_for_{m}", "").strip()
+            final_group = custom_group if group_val == "__NEW__" and custom_group else group_val
+            if m and final_group:
+                cur.execute("INSERT INTO model_groups (model_id, group_name) VALUES (?, ?) ON CONFLICT(model_id) DO UPDATE SET group_name = excluded.group_name", (m.strip().upper(), final_group.strip()))
+        conn.commit()
+    finally:
+        conn.close()
 
     cal_path, att_path, rej_path = os.path.join(TEMP_UPLOAD_DIR, "pending_cal.xlsx"), os.path.join(TEMP_UPLOAD_DIR, "pending_att.xlsx"), os.path.join(TEMP_UPLOAD_DIR, "pending_rej.xlsx")
     committed_items = []
-    if os.path.exists(cal_path):
-        with open(cal_path, "rb") as f: ingest_calibrations(f)
-        os.remove(cal_path); committed_items.append("Calibrations")
-    if os.path.exists(att_path):
-        with open(att_path, "rb") as f: ingest_attendance(f)
-        os.remove(att_path); committed_items.append("Attendance")
-    if os.path.exists(rej_path):
-        with open(rej_path, "rb") as f: ingest_rejections(f)
-        os.remove(rej_path); committed_items.append("Outgoing Inspection Errors")
+    try:
+        if os.path.exists(cal_path):
+            with open(cal_path, "rb") as f:
+                ingest_calibrations(f)
+            os.remove(cal_path)
+            committed_items.append("Calibrations")
+        if os.path.exists(att_path):
+            with open(att_path, "rb") as f:
+                ingest_attendance(f)
+            os.remove(att_path)
+            committed_items.append("Attendance")
+        if os.path.exists(rej_path):
+            with open(rej_path, "rb") as f:
+                ingest_rejections(f)
+            os.remove(rej_path)
+            committed_items.append("Outgoing Inspection Errors")
+    except Exception as e:
+        _clear_pending_uploads()
+        flash(f"❌ Commit failed: {e}", "danger")
+        return redirect(url_for("upload"))
 
     flash(f"✅ Success! {' and '.join(committed_items)} committed to database.", "success")
     return redirect(url_for("dashboard"))
 
+
 @app.route("/upload/cancel", strict_slashes=False)
 def upload_cancel():
-    for p in [os.path.join(TEMP_UPLOAD_DIR, f) for f in ["pending_cal.xlsx", "pending_att.xlsx", "pending_rej.xlsx"]]:
-        if os.path.exists(p): os.remove(p)
+    _clear_pending_uploads()
     flash("Upload inspection cancelled.", "info")
     return redirect(url_for("upload"))
+
 
 @app.route("/map_model_group", methods=["POST"])
 def map_model_group():
@@ -1585,74 +1804,94 @@ def map_model_group():
     flash(f"Successfully mapped {saved_count} model(s) permanently!", "success")
     return redirect(url_for("analytics", quarter=quarter))
 
-# =============================================================================
-# INDIVIDUAL STAFF EDIT & TRANSFER HANDLERS
-# =============================================================================
+
 @app.route("/team/edit_member", methods=["POST"], strict_slashes=False)
 def edit_team_member():
     conn = get_db()
-    eng_id = request.form.get("eng_id")
-    formal_name = request.form.get("formal_name", "").strip()
-    display_name = request.form.get("display_name", "").strip() or None
-    username = request.form.get("username", "").strip()
-    shift_hours = float(request.form.get("shift_hours", 8.0))
-    custom_target = request.form.get("custom_target_pi", "").strip()
-    custom_target_pi = float(custom_target) if custom_target else None
-    track_perf = 1 if request.form.get("track_performance") else 0
-    joined_date = request.form.get("joined_date", "").strip() or None
-    activation_date = request.form.get("activation_date", "").strip() or None
-    resigned_date = request.form.get("resigned_date", "").strip() or None
+    try:
+        eng_id = request.form.get("eng_id")
+        formal_name = request.form.get("formal_name", "").strip()
+        display_name = request.form.get("display_name", "").strip() or None
+        username = request.form.get("username", "").strip()
+        try:
+            shift_hours = float(request.form.get("shift_hours", 8.0))
+        except ValueError:
+            flash("Invalid shift hours value.", "danger")
+            return redirect(url_for("team"))
 
-    if not username:
-        clean_name = re.sub(r'[^a-z0-9]', '.', formal_name.lower()).strip('.')
-        username = f"admin.{clean_name}"
+        custom_target = request.form.get("custom_target_pi", "").strip()
+        try:
+            custom_target_pi = float(custom_target) if custom_target else None
+        except ValueError:
+            flash("Invalid Custom Target P.I. value.", "danger")
+            return redirect(url_for("team"))
 
-    conn.execute("""
-        UPDATE engineers 
-        SET formal_name = ?, display_name = ?, username = ?, shift_hours = ?, 
-            custom_target_pi = ?, track_performance = ?, joined_date = ?, 
-            activation_date = ?, resigned_date = ?
-        WHERE id = ?
-    """, (formal_name, display_name, username, shift_hours, custom_target_pi, track_perf, joined_date, activation_date, resigned_date, eng_id))
-    conn.commit()
-    conn.close()
-    flash(f"Profile for '{formal_name}' updated successfully!", "success")
+        track_perf = 1 if request.form.get("track_performance") else 0
+        joined_date = request.form.get("joined_date", "").strip() or None
+        activation_date = request.form.get("activation_date", "").strip() or None
+        resigned_date = request.form.get("resigned_date", "").strip() or None
+
+        if not username:
+            clean_name = re.sub(r'[^a-z0-9]', '.', formal_name.lower()).strip('.')
+            username = f"admin.{clean_name}"
+
+        cur_row = conn.execute("SELECT station_id FROM engineers WHERE id = ?", (eng_id,)).fetchone()
+        new_station_raw = request.form.get("station_id", "").strip()
+        station_id_to_save = cur_row["station_id"] if cur_row else None
+        if cur_row and cur_row["station_id"] is None and new_station_raw.isdigit():
+            station_id_to_save = int(new_station_raw)
+
+        try:
+            conn.execute("""
+                UPDATE engineers 
+                SET formal_name = ?, display_name = ?, username = ?, station_id = ?, shift_hours = ?, 
+                    custom_target_pi = ?, track_performance = ?, joined_date = ?, 
+                    activation_date = ?, resigned_date = ?
+                WHERE id = ?
+            """, (formal_name, display_name, username, station_id_to_save, shift_hours, custom_target_pi, track_perf, joined_date, activation_date, resigned_date, eng_id))
+            conn.commit()
+            flash(f"Profile for '{formal_name}' updated successfully!", "success")
+        except sqlite3.IntegrityError:
+            flash(f"Username '{username}' is already assigned to another staff member.", "danger")
+    finally:
+        conn.close()
     return redirect(url_for("team"))
 
 
 @app.route("/team/transfer_member", methods=["POST"], strict_slashes=False)
 def transfer_team_member():
     conn = get_db()
-    eng_id = request.form.get("eng_id")
-    new_station_id = request.form.get("new_station_id")
-    transfer_period = request.form.get("transfer_period", "").strip()
+    try:
+        eng_id = request.form.get("eng_id")
+        new_station_id = request.form.get("new_station_id")
+        transfer_period = request.form.get("transfer_period", "").strip()
 
-    if not eng_id or not new_station_id or not transfer_period:
-        flash("Transfer requires a station and an effective month.", "warning")
-        return redirect(url_for("team"))
+        if not eng_id or not new_station_id or not transfer_period:
+            flash("Transfer requires a station and an effective month.", "warning")
+            return redirect(url_for("team"))
 
-    new_st_id = int(new_station_id)
-    cur_eng = conn.execute("SELECT formal_name, station_id, joined_date, activation_date FROM engineers WHERE id = ?", (eng_id,)).fetchone()
-    if not cur_eng:
-        conn.close()
-        return redirect(url_for("team"))
+        new_st_id = int(new_station_id)
+        cur_eng = conn.execute("SELECT formal_name, station_id, joined_date, activation_date FROM engineers WHERE id = ?", (eng_id,)).fetchone()
+        if not cur_eng:
+            return redirect(url_for("team"))
 
-    old_station_id = cur_eng["station_id"]
-    formal_name = cur_eng["formal_name"]
+        old_station_id = cur_eng["station_id"]
+        formal_name = cur_eng["formal_name"]
 
-    match = re.match(r'(\d{4})-(\d{2})', transfer_period)
-    if match:
+        match = re.match(r'^(\d{4})-(\d{2})$', transfer_period)
+        if not match:
+            flash("Effective Transfer Month must be in YYYY-MM format (e.g. 2026-10).", "warning")
+            return redirect(url_for("team"))
+
         t_yr, t_mo = int(match.group(1)), int(match.group(2))
         start_d = parse_iso_date(cur_eng["activation_date"] or cur_eng["joined_date"]) or date(2024, 1, 1)
 
-        # 1. Lock in Initial Station starting from their join date
         if old_station_id:
             conn.execute("""
                 INSERT OR IGNORE INTO engineer_station_history (engineer_id, station_id, effective_year, effective_month)
                 VALUES (?, ?, ?, ?)
             """, (eng_id, old_station_id, start_d.year, start_d.month))
 
-        # 2. Record New Station for the transfer month
         conn.execute("""
             INSERT INTO engineer_station_history (engineer_id, station_id, effective_year, effective_month)
             VALUES (?, ?, ?, ?)
@@ -1660,15 +1899,15 @@ def transfer_team_member():
             DO UPDATE SET station_id = excluded.station_id
         """, (eng_id, new_st_id, t_yr, t_mo))
 
-        # 3. Update main profile
         conn.execute("UPDATE engineers SET station_id = ? WHERE id = ?", (new_st_id, eng_id))
         conn.commit()
 
         new_st_name = conn.execute("SELECT name FROM stations WHERE id = ?", (new_st_id,)).fetchone()[0]
         flash(f"Successfully transferred '{formal_name}' to {new_st_name} effective {transfer_period}!", "success")
-
-    conn.close()
+    finally:
+        conn.close()
     return redirect(url_for("team"))
+
 
 @app.route("/team", methods=["GET", "POST"], strict_slashes=False)
 def team():
@@ -1698,61 +1937,6 @@ def team():
             conn.commit()
             flash("Station settings and names updated successfully!", "success")
 
-        elif action == "update_team":
-            for eng_id in request.form.getlist("eng_id"):
-                formal_name = request.form.get(f"formal_name_{eng_id}", "").strip()
-                username = request.form.get(f"username_{eng_id}", "").strip()
-                station_id = request.form.get(f"station_{eng_id}")
-                station_id = int(station_id) if station_id and station_id.isdigit() else None
-                shift = float(request.form.get(f"shift_{eng_id}", 8.0))
-                joined_d = request.form.get(f"joined_{eng_id}", "").strip() or None
-                act_d = request.form.get(f"activation_{eng_id}", "").strip() or None
-                res_d = request.form.get(f"resigned_{eng_id}", "").strip() or None
-                transfer_period = request.form.get(f"transfer_{eng_id}", "").strip()
-                custom_target_val = request.form.get(f"custom_target_{eng_id}", "").strip()
-                custom_target_pi = float(custom_target_val) if custom_target_val else None
-                disp_name_val = request.form.get(f"display_name_{eng_id}", "").strip() or None
-                track_perf = 1 if request.form.get(f"track_{eng_id}") else 0
-
-                if not username:
-                    username = f"admin.{re.sub(r'[^a-z0-9]', '.', formal_name.lower()).strip('.')}"
-
-                cur_eng = conn.execute("SELECT station_id, joined_date, activation_date FROM engineers WHERE id = ?", (eng_id,)).fetchone()
-                old_station_id = cur_eng["station_id"] if cur_eng else None
-                start_d = parse_iso_date(cur_eng["activation_date"] or cur_eng["joined_date"]) if cur_eng else date(2024, 1, 1)
-                init_yr = start_d.year if start_d else 2024
-                init_mo = start_d.month if start_d else 1
-
-                conn.execute("""
-                    UPDATE engineers 
-                    SET formal_name = ?, username = ?, station_id = ?, shift_hours = ?, joined_date = ?, activation_date = ?, resigned_date = ?, custom_target_pi = ?, display_name = ?, track_performance = ?
-                    WHERE id = ?
-                """, (formal_name, username, station_id, shift, joined_d, act_d, res_d, custom_target_pi, disp_name_val, track_perf, eng_id))
-
-                if transfer_period and station_id and station_id != old_station_id:
-                    match = re.match(r'(\d{4})-(\d{2})', transfer_period)
-                    if match:
-                        t_yr, t_mo = int(match.group(1)), int(match.group(2))
-                        if old_station_id:
-                            conn.execute("INSERT OR IGNORE INTO engineer_station_history (engineer_id, station_id, effective_year, effective_month) VALUES (?, ?, ?, ?)", (eng_id, old_station_id, init_yr, init_mo))
-                        conn.execute("INSERT INTO engineer_station_history (engineer_id, station_id, effective_year, effective_month) VALUES (?, ?, ?, ?) ON CONFLICT(engineer_id, effective_year, effective_month) DO UPDATE SET station_id = excluded.station_id", (eng_id, station_id, t_yr, t_mo))
-
-            conn.commit()
-            flash("Active staff details updated successfully!", "success")
-
-        elif action == "update_resigned":
-            for eng_id in request.form.getlist("resigned_eng_id"):
-                fn = request.form.get(f"res_formal_name_{eng_id}", "").strip()
-                u = request.form.get(f"res_username_{eng_id}", "").strip()
-                dn = request.form.get(f"res_display_name_{eng_id}", "").strip() or None
-                s_id = request.form.get(f"res_station_{eng_id}")
-                s_id = int(s_id) if s_id and s_id.isdigit() else None
-                jd, ad, rd = request.form.get(f"res_joined_{eng_id}", "").strip() or None, request.form.get(f"res_activation_{eng_id}", "").strip() or None, request.form.get(f"res_resigned_{eng_id}", "").strip() or None
-                conn.execute("UPDATE engineers SET formal_name = ?, username = ?, display_name = ?, station_id = ?, joined_date = ?, activation_date = ?, resigned_date = ? WHERE id = ?", (fn, u, dn, s_id, jd, ad, rd, eng_id))
-
-            conn.commit()
-            flash("Inactive staff records updated successfully!", "success")
-
         elif action == "add_station":
             s_name = request.form.get("station_name", "").strip().upper()
             s_order = int(request.form.get("station_order", 99))
@@ -1774,7 +1958,8 @@ def team():
             custom_target_pi = float(custom_target_val) if custom_target_val else None
             track_perf = 1 if request.form.get("track_performance") else 0
 
-            if not u: u = f"admin.{re.sub(r'[^a-z0-9]', '.', fn.lower()).strip('.')}"
+            if not u:
+                u = f"admin.{re.sub(r'[^a-z0-9]', '.', fn.lower()).strip('.')}"
 
             if fn:
                 try:
@@ -1787,6 +1972,7 @@ def team():
                     conn.commit()
                     flash(f"Staff member '{fn}' added successfully!", "success")
 
+        conn.close()
         return redirect(url_for("team"))
 
     stations = conn.execute("SELECT * FROM stations ORDER BY sort_order ASC, name ASC").fetchall()
@@ -1818,6 +2004,7 @@ def team():
     conn.close()
     return render_template("team.html", stations=stations, active_engineers=active_engineers, resigned_engineers=resigned_engineers, muted_techs=muted_techs, kpi_configs=kpi_configs, target_headcount=target_headcount)
 
+
 @app.route("/team/reactivate/<int:eng_id>", methods=["POST"])
 def reactivate_engineer(eng_id):
     conn = get_db()
@@ -1828,28 +2015,33 @@ def reactivate_engineer(eng_id):
     return redirect(url_for("team"))
 
 
-# =============================================================================
-# GITHUB AUTO-DEPLOY WEBHOOK
-# =============================================================================
 @app.route("/api/github-deploy", methods=["POST"], strict_slashes=False)
 def github_deploy():
+    import hashlib
+    import hmac
     import subprocess
 
-    # 1. Pull latest code from GitHub
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET")
+    if secret:
+        sig_header = request.headers.get("X-Hub-Signature-256", "")
+        expected = "sha256=" + hmac.new(secret.encode(), request.get_data(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig_header, expected):
+            return "Invalid signature", 403
+
     repo_dir = os.path.dirname(os.path.abspath(__file__))
     try:
         subprocess.run(["git", "-C", repo_dir, "pull"], check=True)
     except Exception as e:
         return f"Git pull failed: {e}", 500
 
-    # 2. Touch WSGI file to trigger PythonAnywhere instant reload
-    wsgi_file = os.path.expanduser("~/var/www/_wsgi_reload.txt")
-    for f in os.listdir("/var/www/"):
-        if f.endswith("_wsgi.py"):
-            os.utime(os.path.join("/var/www/", f), None)
-            break
+    if os.path.exists("/var/www/"):
+        for f in os.listdir("/var/www/"):
+            if f.endswith("_wsgi.py"):
+                os.utime(os.path.join("/var/www/", f), None)
+                break
 
     return "Code pulled and web app reloaded successfully!", 200
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

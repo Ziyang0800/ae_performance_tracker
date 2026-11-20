@@ -74,9 +74,7 @@
 </div>
 {% else %}
 
-<!-- ========================================================================= -->
-<!-- 1. COMPACT 4-PANEL PERFORMANCE CHART (SPOTFIRE STYLE)                     -->
-<!-- ========================================================================= -->
+<!-- 1. COMPACT 4-PANEL PERFORMANCE CHART (SPOTFIRE STYLE) -->
 <div class="card shadow-sm p-3 bg-white border-0 mb-4">
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h6 class="fw-bold text-dark mb-0">AE Category Performance Trends (Volume & MOS %)</h6>
@@ -104,7 +102,6 @@
         </div>
         {% endfor %}
 
-        <!-- 3-TIER GROUPED TIMELINE AXIS (Month / Keysight Fiscal Quarter / FY) -->
         <div class="d-flex bg-light">
             <div class="flex-grow-1">
                 <div class="timeline-tier-row tier-month" id="timelineMonthsRow"></div>
@@ -115,7 +112,6 @@
         </div>
     </div>
 
-    <!-- HORIZONTAL SCROLLBAR / RANGE FOCUS CONTROLLER -->
     <div class="d-flex justify-content-center mt-2">
         <div class="slider-container" style="width: 80%;">
             <small class="text-muted fw-bold text-nowrap" id="sliderWindowLabel">Focus Window: All Months</small>
@@ -132,9 +128,7 @@
     </div>
 </div>
 
-<!-- ========================================================================= -->
-<!-- 2. MIDDLE EXECUTIVE TREND CHARTS: P.I. (NO TARGET) & QUALITY/REJECTIONS  -->
-<!-- ========================================================================= -->
+<!-- 2. MIDDLE EXECUTIVE TREND CHARTS -->
 <div class="row g-3 mb-4">
     <div class="col-lg-6">
         <div class="card shadow-sm h-100 p-3 bg-white border-0">
@@ -167,9 +161,7 @@
     </div>
 </div>
 
-<!-- ========================================================================= -->
-<!-- 3. QUARTERLY SEGMENT GROUP PERFORMANCE                                    -->
-<!-- ========================================================================= -->
+<!-- 3. QUARTERLY SEGMENT GROUP PERFORMANCE (OPTION B) -->
 <div class="card shadow-sm p-4 bg-white border-0 mb-4">
     {% if unmapped_models_in_quarter %}
     <div class="alert alert-danger py-2 shadow-sm d-flex justify-content-between align-items-center mb-3">
@@ -190,15 +182,15 @@
     </div>
     {% endif %}
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <div>
             <h5 class="fw-bold text-dark mb-0">Quarterly Segment Group Performance</h5>
-            <small class="text-muted">Averaged P.I. with Quarter-over-Quarter (QoQ) progression and unified weighted TAT</small>
+            <small class="text-muted">Option B proportional labor share by calibrated Model ID, with QoQ progression and unified weighted TAT</small>
         </div>
 
         <div class="d-flex align-items-center gap-2">
             <label class="small fw-bold text-muted text-nowrap">Fiscal Period:</label>
-            <select class="form-select form-select-sm fw-bold border-primary text-primary shadow-sm" style="width: 220px;" onchange="location.href='/analytics?quarter=' + this.value;">
+            <select class="form-select form-select-sm fw-bold border-primary text-primary shadow-sm" style="width: 240px;" onchange="location.href='/analytics?quarter=' + this.value;">
                 {% for q in available_quarters %}
                 <option value="{{ q.key }}" {{ 'selected' if q.key == selected_quarter else '' }}>
                     {{ q.label }}
@@ -210,9 +202,15 @@
                 📊 Excel (.xlsx)
             </a>
 
+            {% if selected_quarter and selected_quarter.startswith('FULL_FY_') %}
+            <button type="button" class="btn btn-outline-secondary btn-sm fw-bold shadow-sm" disabled title="PowerPoint slides are only available for individual quarters (disabled for Full Year)">
+                📥 Export Slides (.pptx)
+            </button>
+            {% else %}
             <a href="{{ url_for('export_quarterly_pptx', quarter=selected_quarter) }}" class="btn btn-outline-danger btn-sm fw-bold shadow-sm" title="Download executive PowerPoint slides">
                 📥 Export Slides (.pptx)
             </a>
+            {% endif %}
         </div>
     </div>
 
